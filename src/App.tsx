@@ -22,12 +22,10 @@ interface Game {
  * - In production (Vercel), set VITE_API_BASE_URL in dashboard
  *   e.g. https://your-backend-url.vercel.app
  */
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000";
-
-const GAMES_API = `${API_BASE_URL}/games`;
-const PAY_API = `${API_BASE_URL}`; // /totals, /payments, /reset
-const COIN_VALUE = 0.05;
+// API endpoints for same-domain backend (Vercel)
+const GAMES_API = "/api/games";
+const PAY_API = "/api"; // /api/totals, /api/payments, /api/reset
+const COIN_VALUE = 0.15;
 
 const App: FC = () => {
   const [games, setGames] = useState<Game[]>([]);

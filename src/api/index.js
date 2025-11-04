@@ -1,4 +1,4 @@
-// server.js
+// api/index.js
 import express from "express";
 import cors from "cors";
 import { Low } from "lowdb";
@@ -17,8 +17,9 @@ app.use(express.json());
 // --------------------------
 
 // On Vercel, filesystem is read-only except /tmp
-// So we keep our JSON DB in /tmp for writes.
-const DB_FILE = "/tmp/db.json";
+// Locally we can use ./db.json in the project.
+const isVercel = process.env.VERCEL === "1";
+const DB_FILE = isVercel ? "/tmp/db.json" : "db.json";
 
 const defaultData = {
   games: [],
@@ -66,13 +67,13 @@ async function recalcTotals() {
 // 🎮 GAME ROUTES
 // --------------------------
 
-// Get all games
+// GET /api/games
 app.get("/games", async (_, res) => {
   await ensureDb();
   res.json(db.data.games);
 });
 
-// Add new game
+// POST /api/games
 app.post("/games", async (req, res) => {
   const {
     name,
@@ -101,7 +102,7 @@ app.post("/games", async (req, res) => {
   res.status(201).json(newGame);
 });
 
-// Update game by id
+// PUT /api/games/:id
 app.put("/games/:id", async (req, res) => {
   const { id } = req.params;
   const { coinsSpent, coinsEarned, coinsRecharged } = req.body;
@@ -119,7 +120,7 @@ app.put("/games/:id", async (req, res) => {
   res.json(game);
 });
 
-// Delete game by id
+// DELETE /api/games/:id
 app.delete("/games/:id", async (req, res) => {
   const { id } = req.params;
   await ensureDb();
@@ -136,19 +137,19 @@ app.delete("/games/:id", async (req, res) => {
 // 💵 PAYMENT ROUTES
 // --------------------------
 
-// Fetch all payment history
+// GET /api/payments
 app.get("/payments", async (_, res) => {
   await ensureDb();
   res.json(db.data.payments);
 });
 
-// Fetch current totals
+// GET /api/totals
 app.get("/totals", async (_, res) => {
   await ensureDb();
   res.json(db.data.totals);
 });
 
-// Add new payment
+// POST /api/payments
 app.post("/payments", async (req, res) => {
   const { amount, method, note } = req.body;
   const amt = Number(amount);
@@ -162,7 +163,7 @@ app.post("/payments", async (req, res) => {
 
   await ensureDb();
 
-  // 1️⃣ Save new payment
+  // Save new payment
   const payment = {
     id: nanoid(),
     amount: Math.round(amt * 100) / 100,
@@ -172,10 +173,9 @@ app.post("/payments", async (req, res) => {
   };
   db.data.payments.push(payment);
 
-  // 2️⃣ Update totals safely
+  // Update totals safely
   db.data.totals[method] += payment.amount;
 
-  // 3️⃣ Write back to DB
   await db.write();
 
   console.log(`💰 Added ${payment.amount} via ${method}`);
@@ -187,7 +187,7 @@ app.post("/payments", async (req, res) => {
   });
 });
 
-// Reset all payment data
+// POST /api/reset
 app.post("/reset", async (_, res) => {
   await ensureDb();
   db.data.payments = [];
@@ -197,7 +197,7 @@ app.post("/reset", async (_, res) => {
   res.json({ ok: true, totals: db.data.totals });
 });
 
-// Optional endpoint to recalc totals manually
+// POST /api/recalc
 app.post("/recalc", async (_, res) => {
   const totals = await recalcTotals();
   res.json({ ok: true, totals });
@@ -215,5 +215,5 @@ if (process.env.NODE_ENV !== "production") {
   });
 }
 
-// Vercel: export Express app as default
+// Vercel: export Express app as default handler
 export default app;
