@@ -32,16 +32,14 @@ const db = new Low(adapter, defaultData);
 
 /** Ensure DB is loaded and has default shape */
 async function ensureDb() {
-  await db.read(); // if file missing, LowDB keeps defaultData
+  await db.read();
   if (!db.data) {
     db.data = { ...defaultData };
-    await db.write();
-  } else {
-    // make sure all keys exist
-    db.data.games ||= [];
-    db.data.payments ||= [];
-    db.data.totals ||= { cashapp: 0, paypal: 0, chime: 0 };
   }
+  db.data.games ||= [];
+  db.data.payments ||= [];
+  db.data.totals ||= { cashapp: 0, paypal: 0, chime: 0 };
+  await db.write();
 }
 
 // --------------------------
@@ -49,7 +47,6 @@ async function ensureDb() {
 // --------------------------
 const validMethods = ["cashapp", "paypal", "chime"];
 
-/** Recalculate totals from payments for accuracy */
 async function recalcTotals() {
   await ensureDb();
   const totals = { cashapp: 0, paypal: 0, chime: 0 };
@@ -163,7 +160,6 @@ app.post("/payments", async (req, res) => {
 
   await ensureDb();
 
-  // Save new payment
   const payment = {
     id: nanoid(),
     amount: Math.round(amt * 100) / 100,
@@ -173,12 +169,9 @@ app.post("/payments", async (req, res) => {
   };
   db.data.payments.push(payment);
 
-  // Update totals safely
   db.data.totals[method] += payment.amount;
 
   await db.write();
-
-  console.log(`💰 Added ${payment.amount} via ${method}`);
 
   res.status(201).json({
     ok: true,
@@ -193,7 +186,6 @@ app.post("/reset", async (_, res) => {
   db.data.payments = [];
   db.data.totals = { cashapp: 0, paypal: 0, chime: 0 };
   await db.write();
-  console.log("🔄 All payments and totals reset");
   res.json({ ok: true, totals: db.data.totals });
 });
 
@@ -206,8 +198,6 @@ app.post("/recalc", async (_, res) => {
 // --------------------------
 // 🚀 Local dev vs Vercel
 // --------------------------
-
-// Local development: run on PORT
 if (process.env.NODE_ENV !== "production") {
   const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => {
@@ -215,5 +205,5 @@ if (process.env.NODE_ENV !== "production") {
   });
 }
 
-// Vercel: export Express app as default handler
+// Vercel serverless handler
 export default app;
