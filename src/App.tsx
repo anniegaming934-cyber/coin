@@ -1,4 +1,5 @@
-import React, { type FC, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { FC } from "react";
 import { DollarSign, Coins, TrendingUp } from "lucide-react";
 import StatCard from "./Statacard";
 import GameRow, { GameHeaderRow } from "./Gamerow"; // header row
@@ -15,8 +16,17 @@ interface Game {
   lastRechargeDate?: string;
 }
 
-const GAMES_API = "http://localhost:5000/games";
-const PAY_API = "http://localhost:5000"; // /totals, /payments, /reset
+/**
+ * ✅ API base URL:
+ * - In dev, falls back to http://localhost:5000
+ * - In production (Vercel), set VITE_API_BASE_URL in dashboard
+ *   e.g. https://your-backend-url.vercel.app
+ */
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:5000";
+
+const GAMES_API = `${API_BASE_URL}/games`;
+const PAY_API = `${API_BASE_URL}`; // /totals, /payments, /reset
 const COIN_VALUE = 0.05;
 
 const App: FC = () => {
