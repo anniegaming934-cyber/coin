@@ -1,0 +1,31 @@
+{
+  "games": [
+    {
+      "id": 1762174145240,
+      "name": "asda",
+      "coinsSpent": 0,
+      "coinsEarned": 0,
+      "coinsRecharged": 0
+    },
+    {
+      "id": 1762174621375,
+      "name": "tret",
+      "coinsSpent": 0,
+      "coinsEarned": 0,
+      "coinsRecharged": 0
+    },
+    {
+      "id": 1762240419254,
+      "name": "jkljk",
+      "coinsSpent": 0,
+      "coinsEarned": 0,
+      "coinsRecharged": 0
+    }
+  ],
+  "payments": [],
+  "totals": {
+    "cashapp": 0,
+    "paypal": 0,
+    "chime": 0
+  }
+}
