@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useMemo, useState } from "react";
+import React, { type FC, useEffect, useMemo, useState } from "react";
 import { DollarSign, Coins, TrendingUp } from "lucide-react";
 import StatCard from "./Statacard";
 import GameRow, { GameHeaderRow } from "./Gamerow"; // header row

@@ -1,9 +1,10 @@
-import React, { FC, useMemo, useState } from "react";
+import React, { type FC, useMemo, useState } from "react";
 import { DollarSign, Coins, TrendingUp } from "lucide-react";
 
 /* =========================
    1) TYPES
 ========================= */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 type MetricKey = "revenue" | "coins" | "net";
 
 interface GameStats {

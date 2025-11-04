@@ -1,4 +1,4 @@
-import React, { FC, useState } from "react";
+import React, { type FC, useState } from "react";
 import axios from "axios";
 
 interface AddGameFormProps {

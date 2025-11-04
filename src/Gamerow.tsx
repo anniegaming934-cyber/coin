@@ -1,4 +1,4 @@
-import React, { useState, FC } from "react";
+import React, { useState, type FC } from "react";
 import { TrendingUp, TrendingDown, Gamepad, Edit, Save, X } from "lucide-react";
 
 // ===================================

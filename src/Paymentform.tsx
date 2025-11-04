@@ -1,4 +1,4 @@
-import React, { FC, useEffect, useMemo, useState } from "react";
+import React, { type FC, useEffect, useMemo, useState } from "react";
 import { Loader2, DollarSign, RotateCcw } from "lucide-react";
 
 export type PaymentMethod = "cashapp" | "paypal" | "chime";
