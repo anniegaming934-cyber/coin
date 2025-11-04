@@ -65,13 +65,13 @@ async function recalcTotals() {
 // --------------------------
 
 // GET /api/games
-app.get("/games", async (_, res) => {
+app.get("/api/games", async (_, res) => {
   await ensureDb();
   res.json(db.data.games);
 });
 
 // POST /api/games
-app.post("/games", async (req, res) => {
+app.post("/api/games", async (req, res) => {
   const {
     name,
     coinsSpent = 0,
@@ -100,7 +100,7 @@ app.post("/games", async (req, res) => {
 });
 
 // PUT /api/games/:id
-app.put("/games/:id", async (req, res) => {
+app.put("/api/games/:id", async (req, res) => {
   const { id } = req.params;
   const { coinsSpent, coinsEarned, coinsRecharged } = req.body;
 
@@ -118,7 +118,7 @@ app.put("/games/:id", async (req, res) => {
 });
 
 // DELETE /api/games/:id
-app.delete("/games/:id", async (req, res) => {
+app.delete("/api/games/:id", async (req, res) => {
   const { id } = req.params;
   await ensureDb();
 
@@ -135,19 +135,19 @@ app.delete("/games/:id", async (req, res) => {
 // --------------------------
 
 // GET /api/payments
-app.get("/payments", async (_, res) => {
+app.get("/api/payments", async (_, res) => {
   await ensureDb();
   res.json(db.data.payments);
 });
 
 // GET /api/totals
-app.get("/totals", async (_, res) => {
+app.get("/api/totals", async (_, res) => {
   await ensureDb();
   res.json(db.data.totals);
 });
 
 // POST /api/payments
-app.post("/payments", async (req, res) => {
+app.post("/api/payments", async (req, res) => {
   const { amount, method, note } = req.body;
   const amt = Number(amount);
 
@@ -181,7 +181,7 @@ app.post("/payments", async (req, res) => {
 });
 
 // POST /api/reset
-app.post("/reset", async (_, res) => {
+app.post("/api/reset", async (_, res) => {
   await ensureDb();
   db.data.payments = [];
   db.data.totals = { cashapp: 0, paypal: 0, chime: 0 };
@@ -190,7 +190,7 @@ app.post("/reset", async (_, res) => {
 });
 
 // POST /api/recalc
-app.post("/recalc", async (_, res) => {
+app.post("/api/recalc", async (_, res) => {
   const totals = await recalcTotals();
   res.json({ ok: true, totals });
 });
@@ -198,7 +198,7 @@ app.post("/recalc", async (_, res) => {
 // --------------------------
 // 🚀 Local dev vs Vercel
 // --------------------------
-if (process.env.NODE_ENV !== "production") {
+if (!isVercel) {
   const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => {
     console.log(`✅ Server running at http://localhost:${PORT}`);

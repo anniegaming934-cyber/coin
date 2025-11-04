@@ -1,31 +1,39 @@
 {
   "games": [
     {
-      "id": 1762174145240,
-      "name": "asda",
-      "coinsSpent": 0,
-      "coinsEarned": 0,
-      "coinsRecharged": 0
-    },
-    {
-      "id": 1762174621375,
-      "name": "tret",
-      "coinsSpent": 0,
-      "coinsEarned": 0,
-      "coinsRecharged": 0
-    },
-    {
-      "id": 1762240419254,
-      "name": "jkljk",
+      "id": 1762265339034,
+      "name": "gdfgf",
       "coinsSpent": 0,
       "coinsEarned": 0,
       "coinsRecharged": 0
     }
   ],
-  "payments": [],
+  "payments": [
+    {
+      "id": "lVXr2jOB6ryp4vepL9XOt",
+      "amount": 20,
+      "method": "cashapp",
+      "note": null,
+      "createdAt": "2025-11-04T14:08:31.927Z"
+    },
+    {
+      "id": "H94RU6WlPJBxoEHNK9CWN",
+      "amount": 30,
+      "method": "cashapp",
+      "note": null,
+      "createdAt": "2025-11-04T14:09:41.903Z"
+    },
+    {
+      "id": "A3Em1QK3vrIj9FDEDl94T",
+      "amount": 70,
+      "method": "paypal",
+      "note": null,
+      "createdAt": "2025-11-04T14:09:48.989Z"
+    }
+  ],
   "totals": {
-    "cashapp": 0,
-    "paypal": 0,
+    "cashapp": 50,
+    "paypal": 70,
     "chime": 0
   }
 }
