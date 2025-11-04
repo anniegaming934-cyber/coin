@@ -4,7 +4,8 @@ import { DollarSign, Coins, TrendingUp } from "lucide-react";
 import StatCard from "./Statacard";
 import GameRow, { GameHeaderRow } from "./Gamerow"; // header row
 import AddGameForm from "./Addgame";
-import PaymentForm from "./Paymentform";
+import PaymentForm, { type PaymentMethod } from "./Paymentform";
+import PaymentHistory from "./PaymentHistory";
 import axios from "axios";
 
 interface Game {
@@ -18,11 +19,7 @@ interface Game {
 
 /**
  * ✅ API base URL:
- * - In dev, falls back to http://localhost:5000
- * - In production (Vercel), set VITE_API_BASE_URL in dashboard
- *   e.g. https://your-backend-url.vercel.app
  */
-// API endpoints for same-domain backend (Vercel)
 const GAMES_API = "/api/games";
 const PAY_API = "/api"; // /api/totals, /api/payments, /api/reset
 const COIN_VALUE = 0.15;
@@ -51,7 +48,6 @@ const App: FC = () => {
     try {
       const { data } = await axios.get(GAMES_API);
 
-      // Make sure we actually got an array from the API
       if (!Array.isArray(data)) {
         console.error("❌ Expected an array of games, got:", data);
         setGames([]);
@@ -61,11 +57,9 @@ const App: FC = () => {
 
       setGames(data);
 
-      // Preserve selected game if it still exists; otherwise select the first one
+      // Preserve selected game if still present; otherwise select first
       setSelectedGameId((prev) => {
-        if (prev && data.some((g) => g.id === prev)) {
-          return prev;
-        }
+        if (prev && data.some((g) => g.id === prev)) return prev;
         return data.length > 0 ? data[0].id : null;
       });
     } catch (error) {
@@ -79,7 +73,6 @@ const App: FC = () => {
     try {
       const { data } = await axios.get(`${PAY_API}/totals`);
       setPaymentTotals(data);
-      console.log("dfsd", paymentTotals);
     } catch (e) {
       console.error("Failed to load payment totals:", e);
     }
@@ -117,23 +110,45 @@ const App: FC = () => {
     recharge: number,
     rechargeDateISO?: string
   ) => {
-    // Optimistic local update; persist inside GameRow if desired
+    // we'll store the new totals so we can send them to the API
+    let updatedTotals: {
+      coinsSpent: number;
+      coinsEarned: number;
+      coinsRecharged: number;
+    } | null = null;
+
+    // 1) Optimistic local update
     setGames((prev) =>
-      prev.map((g) =>
-        g.id === id
-          ? {
-              ...g,
-              coinsSpent: g.coinsSpent + spent,
-              coinsEarned: g.coinsEarned + earned,
-              coinsRecharged: g.coinsRecharged + recharge,
-              lastRechargeDate:
-                recharge > 0
-                  ? rechargeDateISO || new Date().toISOString().slice(0, 10)
-                  : g.lastRechargeDate,
-            }
-          : g
-      )
+      prev.map((g) => {
+        if (g.id !== id) return g;
+
+        const updated = {
+          ...g,
+          coinsSpent: g.coinsSpent + spent,
+          coinsEarned: g.coinsEarned + earned,
+          coinsRecharged: g.coinsRecharged + recharge,
+          lastRechargeDate:
+            recharge > 0
+              ? rechargeDateISO || new Date().toISOString().slice(0, 10)
+              : g.lastRechargeDate,
+        };
+
+        updatedTotals = {
+          coinsSpent: updated.coinsSpent,
+          coinsEarned: updated.coinsEarned,
+          coinsRecharged: updated.coinsRecharged,
+        };
+
+        return updated;
+      })
     );
+
+    // 2) Persist to backend (fire-and-forget so signature stays void)
+    if (updatedTotals) {
+      axios
+        .put(`${GAMES_API}/${id}`, updatedTotals)
+        .catch((err) => console.error("Failed to persist game update:", err));
+    }
   };
 
   const handleDelete = async (id: number) => {
@@ -153,23 +168,26 @@ const App: FC = () => {
     amount,
     method,
     note,
+    date,
   }: {
     amount: number;
-    method: "cashapp" | "paypal" | "chime";
+    method: PaymentMethod;
     note?: string;
+    date?: string;
   }) => {
     const { data } = await axios.post(`${PAY_API}/payments`, {
       amount,
       method,
       note,
+      date, // stored by date in backend
     });
-    setPaymentTotals(data.totals); // sync from server response
+    setPaymentTotals(data.totals);
   };
 
   const onReset = async () => {
     const { data } = await axios.post(`${PAY_API}/reset`);
     setPaymentTotals(data.totals);
-    return data.totals; // lets PaymentForm update immediately
+    return data.totals;
   };
 
   const formatCurrency = (amount: number): string =>
@@ -248,7 +266,7 @@ const App: FC = () => {
         />
       </div>
 
-      {/* PAYMENT FORM */}
+      {/* PAYMENT FORM + HISTORY */}
       <div className="grid grid-cols-1 gap-6 mt-6">
         <PaymentForm
           initialTotals={paymentTotals}
@@ -256,6 +274,9 @@ const App: FC = () => {
           onRecharge={onRecharge}
           onReset={onReset}
         />
+
+        {/* Payments table by date */}
+        <PaymentHistory apiBase={PAY_API} />
       </div>
 
       {/* ADD GAME */}

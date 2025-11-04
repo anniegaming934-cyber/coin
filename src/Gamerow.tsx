@@ -51,7 +51,7 @@ export const GameHeaderRow: FC = () => (
     <div className="col-span-2">Spent</div>
     <div className="col-span-2">Earned</div>
     <div className="col-span-2">Recharged</div>
-    <div className="col-span-1">Net Flow</div>
+    <div className="col-span-1">Total coin</div>
     <div className="col-span-2 text-right">P&L / Actions</div>
   </div>
 );
@@ -286,16 +286,16 @@ const GameRow: FC<GameRowProps> = ({
       <div className="col-span-1 text-sm">
         <span
           className={`font-mono ${
-           game.coinsRecharged  - (game.coinsEarned + game.coinsSpent ) > 0
+            game.coinsSpent - (game.coinsEarned + game.coinsRecharged) < 0
               ? "text-green-700"
-              :game.coinsRecharged - (game.coinsEarned +  game.coinsSpent  ) < 0
+              : game.coinsSpent - (game.coinsEarned + game.coinsRecharged) > 0
               ? "text-red-700"
               : "text-gray-500"
           }`}
         >
           {(
-            game.coinsSpent -
-            ( game.coinsRecharged + game.coinsEarned )
+            game.coinsRecharged -
+            (game.coinsSpent + game.coinsEarned)
           ).toLocaleString()}
         </span>
       </div>

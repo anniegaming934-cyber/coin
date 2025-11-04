@@ -1,39 +1,50 @@
 {
   "games": [
     {
-      "id": 1762265339034,
-      "name": "gdfgf",
-      "coinsSpent": 0,
-      "coinsEarned": 0,
-      "coinsRecharged": 0
+      "id": 1762266023961,
+      "name": "zxczc",
+      "coinsSpent": 50,
+      "coinsEarned": 100,
+      "coinsRecharged": 1300
+    },
+    {
+      "id": 1762271549989,
+      "name": "juwa",
+      "coinsSpent": 180,
+      "coinsEarned": 240,
+      "coinsRecharged": 300,
+      "lastRechargeDate": null
     }
   ],
   "payments": [
     {
-      "id": "lVXr2jOB6ryp4vepL9XOt",
-      "amount": 20,
+      "id": "9DQ66PBaDEY8ye_7LW2p0",
+      "amount": 80,
       "method": "cashapp",
       "note": null,
-      "createdAt": "2025-11-04T14:08:31.927Z"
+      "date": "2025-11-04",
+      "createdAt": "2025-11-04T15:26:52.346Z"
     },
     {
-      "id": "H94RU6WlPJBxoEHNK9CWN",
-      "amount": 30,
+      "id": "0RM3Mf3i8qRjJDpNbn7wi",
+      "amount": 90,
       "method": "cashapp",
       "note": null,
-      "createdAt": "2025-11-04T14:09:41.903Z"
+      "date": "2025-11-04",
+      "createdAt": "2025-11-04T15:26:58.271Z"
     },
     {
-      "id": "A3Em1QK3vrIj9FDEDl94T",
-      "amount": 70,
+      "id": "AHmOmqs_ARPEuIIdewUwK",
+      "amount": 80,
       "method": "paypal",
-      "note": null,
-      "createdAt": "2025-11-04T14:09:48.989Z"
+      "note": "samri",
+      "date": "2025-11-04",
+      "createdAt": "2025-11-04T15:27:11.915Z"
     }
   ],
   "totals": {
-    "cashapp": 50,
-    "paypal": 70,
+    "cashapp": 170,
+    "paypal": 80,
     "chime": 0
   }
 }

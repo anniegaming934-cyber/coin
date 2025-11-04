@@ -77,6 +77,7 @@ app.post("/api/games", async (req, res) => {
     coinsSpent = 0,
     coinsEarned = 0,
     coinsRecharged = 0,
+    lastRechargeDate = null, // 👈 optional, for consistency with frontend type
   } = req.body;
 
   if (!name || typeof name !== "string") {
@@ -91,6 +92,7 @@ app.post("/api/games", async (req, res) => {
     coinsSpent,
     coinsEarned,
     coinsRecharged,
+    lastRechargeDate,
   };
 
   db.data.games.push(newGame);
@@ -102,16 +104,23 @@ app.post("/api/games", async (req, res) => {
 // PUT /api/games/:id
 app.put("/api/games/:id", async (req, res) => {
   const { id } = req.params;
-  const { coinsSpent, coinsEarned, coinsRecharged } = req.body;
+  const { coinsSpent, coinsEarned, coinsRecharged, lastRechargeDate } =
+    req.body;
 
   await ensureDb();
 
   const game = db.data.games.find((g) => g.id === parseInt(id, 10));
   if (!game) return res.status(404).json({ message: "Game not found" });
 
-  game.coinsSpent = coinsSpent;
-  game.coinsEarned = coinsEarned;
-  game.coinsRecharged = coinsRecharged;
+  // These three come from App.handleUpdate
+  if (typeof coinsSpent === "number") game.coinsSpent = coinsSpent;
+  if (typeof coinsEarned === "number") game.coinsEarned = coinsEarned;
+  if (typeof coinsRecharged === "number") game.coinsRecharged = coinsRecharged;
+
+  // Optional — only update if provided
+  if (lastRechargeDate !== undefined) {
+    game.lastRechargeDate = lastRechargeDate;
+  }
 
   await db.write();
   res.json(game);
@@ -134,10 +143,19 @@ app.delete("/api/games/:id", async (req, res) => {
 // 💵 PAYMENT ROUTES
 // --------------------------
 
-// GET /api/payments
-app.get("/api/payments", async (_, res) => {
+// GET /api/payments?date=YYYY-MM-DD (optional filter)
+app.get("/api/payments", async (req, res) => {
   await ensureDb();
-  res.json(db.data.payments);
+  const { date } = req.query;
+
+  let payments = db.data.payments;
+
+  // if a date is provided, only return payments for that date
+  if (date) {
+    payments = payments.filter((p) => p.date === date);
+  }
+
+  res.json(payments);
 });
 
 // GET /api/totals
@@ -148,7 +166,7 @@ app.get("/api/totals", async (_, res) => {
 
 // POST /api/payments
 app.post("/api/payments", async (req, res) => {
-  const { amount, method, note } = req.body;
+  const { amount, method, note, date } = req.body;
   const amt = Number(amount);
 
   if (!Number.isFinite(amt) || amt <= 0) {
@@ -160,15 +178,24 @@ app.post("/api/payments", async (req, res) => {
 
   await ensureDb();
 
+  // normalize date: expect "YYYY-MM-DD"; fallback to today's date
+  let paymentDate;
+  if (typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    paymentDate = date;
+  } else {
+    paymentDate = new Date().toISOString().slice(0, 10);
+  }
+
   const payment = {
     id: nanoid(),
     amount: Math.round(amt * 100) / 100,
     method,
     note: note || null,
+    date: paymentDate, // stored by date
     createdAt: new Date().toISOString(),
   };
-  db.data.payments.push(payment);
 
+  db.data.payments.push(payment);
   db.data.totals[method] += payment.amount;
 
   await db.write();
@@ -193,6 +220,95 @@ app.post("/api/reset", async (_, res) => {
 app.post("/api/recalc", async (_, res) => {
   const totals = await recalcTotals();
   res.json({ ok: true, totals });
+});
+
+// PUT /api/payments/:id  (edit a payment)
+app.put("/api/payments/:id", async (req, res) => {
+  const { id } = req.params;
+  const { amount, method, note, date } = req.body;
+
+  await ensureDb();
+
+  const payment = db.data.payments.find((p) => p.id === id);
+  if (!payment) {
+    return res.status(404).json({ message: "Payment not found" });
+  }
+
+  const oldAmount = payment.amount;
+  const oldMethod = payment.method;
+
+  // ---- validate new values (or keep old) ----
+  let newAmount = oldAmount;
+  if (amount !== undefined) {
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      return res.status(400).json({ message: "Invalid amount" });
+    }
+    newAmount = Math.round(amt * 100) / 100;
+  }
+
+  let newMethod = oldMethod;
+  if (method !== undefined) {
+    if (!validMethods.includes(method)) {
+      return res.status(400).json({ message: "Invalid method" });
+    }
+    newMethod = method;
+  }
+
+  let newDate = payment.date;
+  if (typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    newDate = date;
+  }
+
+  const newNote = note !== undefined ? note || null : payment.note;
+
+  // ---- update totals: remove old, add new ----
+  if (validMethods.includes(oldMethod)) {
+    db.data.totals[oldMethod] -= oldAmount;
+  }
+  if (validMethods.includes(newMethod)) {
+    db.data.totals[newMethod] += newAmount;
+  }
+
+  // ---- update payment ----
+  payment.amount = newAmount;
+  payment.method = newMethod;
+  payment.note = newNote;
+  payment.date = newDate;
+
+  await db.write();
+
+  res.json({
+    ok: true,
+    payment,
+    totals: db.data.totals,
+  });
+});
+
+// DELETE /api/payments/:id  (delete a payment)
+app.delete("/api/payments/:id", async (req, res) => {
+  const { id } = req.params;
+  await ensureDb();
+
+  const index = db.data.payments.findIndex((p) => p.id === id);
+  if (index === -1) {
+    return res.status(404).json({ message: "Payment not found" });
+  }
+
+  const [removed] = db.data.payments.splice(index, 1);
+
+  // adjust totals
+  if (validMethods.includes(removed.method)) {
+    db.data.totals[removed.method] -= removed.amount;
+  }
+
+  await db.write();
+
+  res.json({
+    ok: true,
+    removed,
+    totals: db.data.totals,
+  });
 });
 
 // --------------------------
