@@ -4,14 +4,19 @@ import { Loader2, DollarSign, RotateCcw, AlertTriangle } from "lucide-react";
 export type PaymentMethod = "cashapp" | "paypal" | "chime";
 type Totals = { cashapp: number; paypal: number; chime: number };
 
+// NEW: transaction type
+export type TxType = "cashin" | "cashout";
+
 export interface PaymentFormProps {
   initialTotals?: Partial<Totals>;
   onTotalsChange?: (totals: Totals) => void;
   onRecharge?: (payload: {
     amount: number;
     method: PaymentMethod;
-    note?: string;
+    note?: string; // normal note for cash-in
+    playerName?: string; // for cash-out
     date?: string;
+    txType: TxType; // 👈 NEW
   }) => Promise<void> | void;
   onReset?: () => Promise<Totals> | Totals | void;
 }
@@ -62,6 +67,9 @@ const PaymentForm: FC<PaymentFormProps> = ({
   const [note, setNote] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
 
+  // cash in / cash out
+  const [txType, setTxType] = useState<TxType>("cashin");
+
   const [submitting, setSubmitting] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,18 +83,41 @@ const PaymentForm: FC<PaymentFormProps> = ({
       setError("Enter a valid amount.");
       return;
     }
+
+    const isCashOut = txType === "cashout";
+    const signedAmt = isCashOut ? -amt : amt; // 👈 local impact on totals
+
     try {
       setSubmitting(true);
       setError(null);
       setOk(null);
-      setTotals((prev) => ({ ...prev, [method]: prev[method] + amt }));
+
+      // update local totals (cashout subtracts)
+      setTotals((prev) => ({
+        ...prev,
+        [method]: prev[method] + signedAmt,
+      }));
+
+      const trimmed = note.trim();
+      const playerName = isCashOut ? trimmed || undefined : undefined;
+      const normalNote = !isCashOut ? trimmed || undefined : undefined;
+
       await onRecharge?.({
-        amount: +amt.toFixed(2),
+        amount: +amt.toFixed(2), // always positive amount to backend
         method,
-        note: note.trim() || undefined,
+        note: normalNote,
+        playerName,
         date,
+        txType,
       });
-      setOk(`Added ${fmtUSD(amt)} via ${method}.`);
+
+      if (isCashOut) {
+        const pName = playerName || "player";
+        setOk(`Cash out ${fmtUSD(amt)} to ${pName} via ${method}.`);
+      } else {
+        setOk(`Cash in ${fmtUSD(amt)} via ${method}.`);
+      }
+
       setAmount("");
       setNote("");
     } catch (err: any) {
@@ -119,9 +150,30 @@ const PaymentForm: FC<PaymentFormProps> = ({
       active ? `${color} text-white` : "border-gray-300 text-gray-700"
     }`;
 
+  const isCashOut = txType === "cashout";
+
   return (
     <>
       <div className="bg-white rounded-xl shadow-sm p-4 space-y-4 text-sm">
+        {/* Type toggle */}
+        <div className="flex flex-wrap gap-2 items-center">
+          <span className="text-xs text-gray-500 mr-1">Type:</span>
+          <button
+            type="button"
+            onClick={() => setTxType("cashin")}
+            className={pill(txType === "cashin", "bg-emerald-500")}
+          >
+            Cash In
+          </button>
+          <button
+            type="button"
+            onClick={() => setTxType("cashout")}
+            className={pill(txType === "cashout", "bg-rose-500")}
+          >
+            Cash Out
+          </button>
+        </div>
+
         {/* Totals */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
           <TotalPill label="Cash App" value={totals.cashapp} color="#10B981" />
@@ -132,6 +184,7 @@ const PaymentForm: FC<PaymentFormProps> = ({
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-3">
+          {/* Method buttons */}
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -174,13 +227,19 @@ const PaymentForm: FC<PaymentFormProps> = ({
             />
           </div>
 
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Note (optional)"
-            rows={1}
-            className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
-          />
+          {/* Note / Player name */}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-600">
+              {isCashOut ? "Player name" : "Note (optional)"}
+            </label>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder={isCashOut ? "Enter player name" : "Note (optional)"}
+              rows={1}
+              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+            />
+          </div>
 
           {error && (
             <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-md px-2 py-1">
@@ -200,7 +259,7 @@ const PaymentForm: FC<PaymentFormProps> = ({
               className="flex-1 flex items-center justify-center gap-1 rounded-md bg-indigo-600 text-white py-1.5 text-xs font-semibold hover:bg-indigo-700 disabled:opacity-60"
             >
               {submitting && <Loader2 className="h-3 w-3 animate-spin" />}
-              Add
+              {isCashOut ? "Record Cash Out" : "Add Cash In"}
             </button>
             <button
               type="button"

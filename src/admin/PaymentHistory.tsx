@@ -4,6 +4,7 @@ import axios from "axios";
 import { Loader2, Pencil, Trash2, X, Check, AlertTriangle } from "lucide-react";
 
 export type PaymentMethod = "cashapp" | "paypal" | "chime";
+type TxType = "cashin" | "cashout";
 
 interface Payment {
   id: string;
@@ -12,6 +13,7 @@ interface Payment {
   note?: string | null;
   date: string; // "YYYY-MM-DD"
   createdAt: string; // full ISO timestamp
+  txType?: TxType; // 👈 may be missing for old records
 }
 
 interface PaymentHistoryProps {
@@ -36,6 +38,7 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
   const [editAmount, setEditAmount] = useState<string>("");
   const [editMethod, setEditMethod] = useState<PaymentMethod>("cashapp");
   const [editNote, setEditNote] = useState<string>("");
+  const [editTxType, setEditTxType] = useState<TxType>("cashin");
 
   // delete modal state
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -73,10 +76,12 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
 
   // start editing a row
   const startEdit = (p: Payment) => {
+    const type: TxType = p.txType ?? "cashin";
     setEditingId(p.id);
     setEditAmount(String(p.amount));
     setEditMethod(p.method);
     setEditNote(p.note ?? "");
+    setEditTxType(type);
   };
 
   const cancelEdit = () => {
@@ -84,6 +89,7 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
     setEditAmount("");
     setEditMethod("cashapp");
     setEditNote("");
+    setEditTxType("cashin");
   };
 
   const saveEdit = async (id: string) => {
@@ -100,6 +106,7 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
         method: editMethod,
         note: editNote.trim() || null,
         date, // keep same date as current filter (optional)
+        txType: editTxType, // 👈 send to backend
       });
 
       await loadPayments(); // refresh list
@@ -191,6 +198,7 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
             <table className="min-w-full text-sm">
               <thead>
                 <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  <th className="px-3 py-2">Type</th>
                   <th className="px-3 py-2">Method</th>
                   <th className="px-3 py-2">Amount</th>
                   <th className="px-3 py-2">Note</th>
@@ -202,10 +210,26 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                 {payments.map((p) => {
                   const time = p.createdAt?.slice(11, 16) || ""; // HH:MM
                   const isEditing = editingId === p.id;
+                  const tx = (p.txType ?? "cashin") as TxType;
+                  const isOut = tx === "cashout";
 
                   if (isEditing) {
                     return (
                       <tr key={p.id} className="bg-indigo-50/40">
+                        {/* Type edit */}
+                        <td className="px-3 py-2">
+                          <select
+                            value={editTxType}
+                            onChange={(e) =>
+                              setEditTxType(e.target.value as TxType)
+                            }
+                            className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+                          >
+                            <option value="cashin">Cash In</option>
+                            <option value="cashout">Cash Out</option>
+                          </select>
+                        </td>
+
                         {/* Method edit */}
                         <td className="px-3 py-2">
                           <select
@@ -275,16 +299,39 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                   // normal row (not editing)
                   return (
                     <tr key={p.id} className="hover:bg-gray-50">
+                      {/* Type badge */}
+                      <td className="px-3 py-2">
+                        <span
+                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                            isOut
+                              ? "bg-red-50 text-red-700 border border-red-100"
+                              : "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                          }`}
+                        >
+                          {isOut ? "Cash Out" : "Cash In"}
+                        </span>
+                      </td>
+
                       <td className="px-3 py-2 capitalize">{p.method}</td>
-                      <td className="px-3 py-2 font-medium">
+
+                      {/* Amount with + / - & color */}
+                      <td
+                        className={`px-3 py-2 font-medium ${
+                          isOut ? "text-red-600" : "text-emerald-600"
+                        }`}
+                      >
+                        {isOut ? "-" : "+"}
                         {fmtUSD(p.amount)}
                       </td>
+
                       <td className="px-3 py-2 text-gray-600">
                         {p.note || (
                           <span className="italic text-gray-400">—</span>
                         )}
                       </td>
+
                       <td className="px-3 py-2 text-gray-500">{time}</td>
+
                       <td className="px-3 py-2">
                         <div className="flex justify-end gap-2">
                           <button
@@ -331,6 +378,7 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                   <span className="font-semibold">
                     {fmtUSD(deleteTarget.amount)}
                   </span>{" "}
+                  {deleteTarget.txType === "cashout" ? "cash-out" : "cash-in"}{" "}
                   payment via{" "}
                   <span className="font-semibold">{deleteTarget.method}</span>{" "}
                   on <span className="font-semibold">{deleteTarget.date}</span>.
@@ -339,7 +387,6 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
               </div>
             </div>
 
-            {/* Centered wide buttons */}
             <div className="mt-6 flex flex-col items-center gap-2">
               <button
                 type="button"

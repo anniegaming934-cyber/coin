@@ -7,27 +7,37 @@ import type { Game } from "../admin/Gamerow";
 const GAMES_API = "/api/games";
 const COIN_VALUE = 0.15;
 
-// helper to avoid NaN
+// helper
 const safeNumber = (value: unknown): number => {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
+};
+
+type SessionValues = {
+  freeplay: number;
+  redeem: number;
+  deposit: number;
 };
 
 const UserTable: React.FC = () => {
   const [games, setGames] = useState<Game[]>([]);
   const [editingGame, setEditingGame] = useState<Game | null>(null);
 
-  // three edit fields
+  // edit fields
   const [freeplayChange, setFreeplayChange] = useState("");
   const [redeemChange, setRedeemChange] = useState("");
   const [depositChange, setDepositChange] = useState("");
 
-  // Fetch all games
+  const [sessionValues, setSessionValues] = useState<
+    Record<number, SessionValues>
+  >({});
+  const [isSaving, setIsSaving] = useState(false);
+
+  // fetch all games
   const fetchGames = async () => {
     try {
       const { data } = await axios.get(GAMES_API);
       if (Array.isArray(data)) setGames(data);
-      else console.error("Expected array but got:", data);
     } catch (err) {
       console.error("Failed to fetch games:", err);
     }
@@ -37,15 +47,20 @@ const UserTable: React.FC = () => {
     fetchGames();
   }, []);
 
-  // Save from dialog – call backend increment route
-  const handleSave = async () => {
-    if (!editingGame) return;
+  // reset UI-only values every 10 minutes
+  useEffect(() => {
+    const interval = setInterval(() => setSessionValues({}), 10 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
 
-    const freeplay = Number(freeplayChange) || 0; // coinsEarned +
-    const redeem = Number(redeemChange) || 0; // coinsSpent +
-    const deposit = Number(depositChange) || 0; // coinsRecharged +
+  // handle save
+  const handleSave = () => {
+    if (!editingGame || isSaving) return;
 
-    // if all zero, just close
+    const freeplay = Number(freeplayChange) || 0;
+    const redeem = Number(redeemChange) || 0;
+    const deposit = Number(depositChange) || 0;
+
     if (!freeplay && !redeem && !deposit) {
       setEditingGame(null);
       setFreeplayChange("");
@@ -54,24 +69,51 @@ const UserTable: React.FC = () => {
       return;
     }
 
-    try {
-      await axios.post(`${GAMES_API}/${editingGame.id}/add-moves`, {
-        freeplayDelta: freeplay,
-        redeemDelta: redeem,
-        depositDelta: deposit,
-      });
+    const gameId = editingGame.id;
 
-      // Reload games so totals/UI stay correct
-      await fetchGames();
-    } catch (err) {
-      console.error("Failed to save game moves:", err);
-    }
+    // 1️⃣ Update totals instantly on UI
+    setGames((prev) =>
+      prev.map((g) => {
+        if (g.id !== gameId) return g;
+        return {
+          ...g,
+          // logic stays same in backend structure
+          coinsEarned: safeNumber(g.coinsEarned) + freeplay,
+          coinsSpent: safeNumber(g.coinsSpent) + redeem,
+          coinsRecharged: safeNumber(g.coinsRecharged) + deposit,
+        };
+      })
+    );
 
-    // Close dialog + reset fields
+    // 2️⃣ UI-only session display
+    setSessionValues((prev) => {
+      const current = prev[gameId] || { freeplay: 0, redeem: 0, deposit: 0 };
+      return {
+        ...prev,
+        [gameId]: {
+          freeplay: current.freeplay + freeplay,
+          redeem: current.redeem + redeem,
+          deposit: current.deposit + deposit,
+        },
+      };
+    });
+
+    // 3️⃣ Close dialog instantly
     setEditingGame(null);
     setFreeplayChange("");
     setRedeemChange("");
     setDepositChange("");
+
+    // 4️⃣ Send to backend (no UI delay)
+    setIsSaving(true);
+    axios
+      .post(`${GAMES_API}/${gameId}/add-moves`, {
+        freeplayDelta: freeplay,
+        redeemDelta: redeem,
+        depositDelta: deposit,
+      })
+      .catch((err) => console.error("Failed to save:", err))
+      .finally(() => setIsSaving(false));
   };
 
   const formatCurrency = (n: number) =>
@@ -93,11 +135,18 @@ const UserTable: React.FC = () => {
 
         <tbody className="text-sm text-gray-700">
           {games.map((game) => {
-            const spent = safeNumber(game.coinsSpent); // redeem
-            const earned = safeNumber(game.coinsEarned); // freeplay
-            const recharged = safeNumber(game.coinsRecharged); // deposit
-            const totalCoins = earned + recharged - spent;
+            const earned = safeNumber(game.coinsEarned);
+            const spent = safeNumber(game.coinsSpent);
+            const recharged = safeNumber(game.coinsRecharged);
+
+            const totalCoins = spent - (earned + recharged); // 🔁 new formula
             const pnl = totalCoins * COIN_VALUE;
+
+            const session = sessionValues[game.id] || {
+              freeplay: 0,
+              redeem: 0,
+              deposit: 0,
+            };
 
             return (
               <tr key={game.id} className="border-b hover:bg-gray-50">
@@ -105,22 +154,16 @@ const UserTable: React.FC = () => {
                   {game.name}
                 </td>
 
-                {/* Freeplay */}
                 <td className="px-4 py-3 text-center text-emerald-600 font-semibold">
-                  {earned}
+                  {session.freeplay.toLocaleString()}
                 </td>
-
-                {/* Redeem */}
                 <td className="px-4 py-3 text-center text-red-500 font-semibold">
-                  {spent}
+                  {session.redeem.toLocaleString()}
                 </td>
-
-                {/* Deposit */}
                 <td className="px-4 py-3 text-center text-indigo-500 font-semibold">
-                  {recharged}
+                  {session.deposit.toLocaleString()}
                 </td>
 
-                {/* Total coins (net) */}
                 <td className="px-4 py-3 text-center">
                   <div className="flex flex-col items-center">
                     <span
@@ -136,7 +179,6 @@ const UserTable: React.FC = () => {
                   </div>
                 </td>
 
-                {/* Edit button */}
                 <td className="px-4 py-3 text-right">
                   <button
                     onClick={() => {
@@ -146,7 +188,6 @@ const UserTable: React.FC = () => {
                       setDepositChange("");
                     }}
                     className="inline-flex items-center justify-center w-7 h-7 rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50"
-                    title="Edit"
                   >
                     <Pencil className="w-3.5 h-3.5" />
                   </button>
@@ -157,10 +198,7 @@ const UserTable: React.FC = () => {
 
           {games.length === 0 && (
             <tr>
-              <td
-                colSpan={6}
-                className="text-center text-gray-500 text-sm py-6"
-              >
+              <td colSpan={6} className="text-center text-gray-500 py-6">
                 No games available.
               </td>
             </tr>
@@ -168,11 +206,10 @@ const UserTable: React.FC = () => {
         </tbody>
       </table>
 
-      {/* 🧩 EDIT POPUP DIALOG */}
+      {/* 🧩 EDIT POPUP */}
       {editingGame && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-sm relative">
-            {/* Close button */}
             <button
               onClick={() => {
                 setEditingGame(null);
@@ -190,7 +227,6 @@ const UserTable: React.FC = () => {
             </h2>
 
             <div className="space-y-3">
-              {/* Freeplay */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Freeplay (+)
@@ -203,8 +239,6 @@ const UserTable: React.FC = () => {
                   placeholder="Enter freeplay amount"
                 />
               </div>
-
-              {/* Redeem */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Redeem (+)
@@ -217,8 +251,6 @@ const UserTable: React.FC = () => {
                   placeholder="Enter redeem amount"
                 />
               </div>
-
-              {/* Deposit */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Deposit (+)
@@ -246,9 +278,10 @@ const UserTable: React.FC = () => {
                 </button>
                 <button
                   onClick={handleSave}
-                  className="px-4 py-2 text-sm rounded-md bg-indigo-600 text-white hover:bg-indigo-700"
+                  disabled={isSaving}
+                  className="px-4 py-2 text-sm rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed"
                 >
-                  Save
+                  {isSaving ? "Saving..." : "Save"}
                 </button>
               </div>
             </div>

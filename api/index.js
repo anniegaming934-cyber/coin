@@ -80,6 +80,11 @@ const PaymentSchema = new mongoose.Schema(
       enum: ["cashapp", "paypal", "chime"],
       required: true,
     },
+    txType: {
+      type: String,
+      enum: ["cashin", "cashout"],
+      default: "cashin", // old docs treated as cashin
+    },
     note: { type: String, default: null },
     date: { type: String, required: true }, // "YYYY-MM-DD"
     createdAt: { type: Date, default: Date.now },
@@ -161,11 +166,20 @@ async function computeTotals() {
 
   const totals = { cashapp: 0, paypal: 0, chime: 0 };
 
-  const payments = await Payment.find({}, { amount: 1, method: 1 }).lean();
+  // also get txType to know cashin/cashout
+  const payments = await Payment.find(
+    {},
+    { amount: 1, method: 1, txType: 1 }
+  ).lean();
 
   for (const p of payments) {
-    if (validMethods.includes(p.method)) {
+    if (!validMethods.includes(p.method)) continue;
+
+    const type = p.txType === "cashout" ? "cashout" : "cashin";
+    if (type === "cashin") {
       totals[p.method] += p.amount;
+    } else {
+      totals[p.method] -= p.amount;
     }
   }
 
@@ -509,7 +523,7 @@ app.get("/api/totals", async (_, res) => {
 
 // POST /api/payments
 app.post("/api/payments", async (req, res) => {
-  const { amount, method, note, date } = req.body;
+  const { amount, method, note, date, txType } = req.body;
   const amt = Number(amount);
 
   if (!Number.isFinite(amt) || amt <= 0) {
@@ -518,6 +532,9 @@ app.post("/api/payments", async (req, res) => {
   if (!validMethods.includes(method)) {
     return res.status(400).json({ message: "Invalid method" });
   }
+
+  // cashin / cashout, default cashin
+  const type = txType === "cashout" ? "cashout" : "cashin";
 
   let paymentDate;
   if (typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -533,6 +550,7 @@ app.post("/api/payments", async (req, res) => {
       id: nanoid(),
       amount: Math.round(amt * 100) / 100,
       method,
+      txType: type,
       note: note || null,
       date: paymentDate,
       createdAt: new Date(),
@@ -579,7 +597,7 @@ app.post("/api/recalc", async (_, res) => {
 // PUT /api/payments/:id  (edit a payment)
 app.put("/api/payments/:id", async (req, res) => {
   const { id } = req.params;
-  const { amount, method, note, date } = req.body;
+  const { amount, method, note, date, txType } = req.body;
 
   try {
     await connectDB();
@@ -589,10 +607,8 @@ app.put("/api/payments/:id", async (req, res) => {
       return res.status(404).json({ message: "Payment not found" });
     }
 
-    const oldAmount = payment.amount;
-    const oldMethod = payment.method;
-
-    let newAmount = oldAmount;
+    // ---- amount ----
+    let newAmount = payment.amount;
     if (amount !== undefined) {
       const amt = Number(amount);
       if (!Number.isFinite(amt) || amt <= 0) {
@@ -601,7 +617,8 @@ app.put("/api/payments/:id", async (req, res) => {
       newAmount = Math.round(amt * 100) / 100;
     }
 
-    let newMethod = oldMethod;
+    // ---- method ----
+    let newMethod = payment.method;
     if (method !== undefined) {
       if (!validMethods.includes(method)) {
         return res.status(400).json({ message: "Invalid method" });
@@ -609,15 +626,25 @@ app.put("/api/payments/:id", async (req, res) => {
       newMethod = method;
     }
 
+    // ---- txType (cashin / cashout) ----
+    let newTxType = payment.txType || "cashin";
+    if (txType !== undefined) {
+      newTxType = txType === "cashout" ? "cashout" : "cashin";
+    }
+
+    // ---- date ----
     let newDate = payment.date;
     if (typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
       newDate = date;
     }
 
+    // ---- note ----
     const newNote = note !== undefined ? note || null : payment.note;
 
+    // apply updates
     payment.amount = newAmount;
     payment.method = newMethod;
+    payment.txType = newTxType;
     payment.note = newNote;
     payment.date = newDate;
 
