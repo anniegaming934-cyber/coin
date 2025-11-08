@@ -1,95 +1,63 @@
 // api/routes/logins.js
 import express from "express";
-import mongoose from "mongoose";
 import LoginHistory from "../models/LoginHistory.js";
-import { connectDB } from "../config/db.js"; // ✅ use your existing DB helper
+import { connectDB } from "../config/db.js";
 
 const router = express.Router();
 
-// --------------------------
-// POST /api/logins/start
-// Create new login record
-// --------------------------
-router.post("/logins/start", async (req, res) => {
+/**
+ * GET /api/logins/all
+ * Returns normalized login history records for the admin table
+ */
+router.get("/all", async (_req, res) => {
   try {
     await connectDB();
 
-    const { userEmail, userName } = req.body;
-    if (!userEmail || !userName) {
-      return res
-        .status(400)
-        .json({ message: "userEmail and userName are required" });
-    }
+    const logs = await LoginHistory.find({})
+      .sort({ loggedInAt: -1 })
+      .populate("userId", "name email")
+      .lean();
 
-    const login = await LoginHistory.create({
-      userEmail,
-      userName,
-      loginTime: new Date(),
-    });
+    // Normalize to what the frontend expects
+    const mapped = logs.map((log) => ({
+      _id: String(log._id),
+      userId: log.userId ? String(log.userId._id) : null,
+      userEmail: log.userId?.email || log.email || "",
+      userName: log.userId?.name || "",
+      loginTime: log.loggedInAt || log.createdAt,
+      logoutTime: log.loggedOutAt || null,
+      createdAt: log.createdAt,
+    }));
 
-    res.status(201).json(login.toJSON());
+    res.json(mapped);
   } catch (err) {
-    console.error("Error creating login record:", err);
-    res.status(500).json({ message: "Server error", error: err.message });
+    console.error("Failed to fetch login history:", err);
+    res
+      .status(500)
+      .json({ message: "Failed to fetch login records", error: err.message });
   }
 });
 
-// --------------------------
-// POST /api/logins/end
-// Optional: mark logout time (if you want to track it)
-// --------------------------
-router.post("/logins/end", async (req, res) => {
+/**
+ * GET /api/logins
+ * Optional: basic recent raw records (not used by the admin table)
+ */
+router.get("/", async (_req, res) => {
   try {
     await connectDB();
 
-    const { sessionId } = req.body;
-    if (!sessionId) {
-      return res.status(400).json({ message: "sessionId is required" });
-    }
+    const records = await LoginHistory.find()
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
 
-    const session = await LoginHistory.findById(sessionId);
-    if (!session) {
-      return res.status(404).json({ message: "Session not found" });
-    }
-
-    // add logout field dynamically if you want
-    session.logoutTime = new Date();
-    await session.save();
-
-    res.json(session.toJSON());
-  } catch (err) {
-    console.error("Error updating logout time:", err);
-    res.status(500).json({ message: "Server error", error: err.message });
-  }
-});
-
-// --------------------------
-// GET /api/logins
-// Get recent login records (for admin or stats)
-// --------------------------
-router.get("/logins", async (_req, res) => {
-  try {
-    await connectDB();
-    const records = await LoginHistory.find().sort({ createdAt: -1 }).limit(50);
     res.json(records);
   } catch (err) {
+    console.error("GET /api/logins error:", err);
     res
       .status(500)
       .json({ message: "Failed to load records", error: err.message });
   }
 });
-router.get("/logins/all", async (_req, res) => {
-  try {
-    await connectDB();
-    const records = await LoginHistory.find()
-      .sort({ createdAt: -1 })
-      .limit(100)
-      .lean();
 
-    res.json(records);
-  } catch (err) {
-    console.error("GET /api/logins/all error:", err);
-    res.status(500).json({ message: "Failed to load login history" });
-  }
-});
 export default router;
