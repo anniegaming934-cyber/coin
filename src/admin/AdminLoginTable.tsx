@@ -149,11 +149,22 @@ const AdminUserActivityTable: React.FC = () => {
     }
   };
 
-  const formatForDisplay = (iso: string | null): string => {
+  // --- NEW: date + time formatters ---
+  const formatDate = (iso: string | null): string => {
     if (!iso) return "—";
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return "—";
-    return d.toLocaleString();
+    return d.toLocaleDateString(); // e.g. 11/8/2025
+  };
+
+  const formatTime = (iso: string | null): string => {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    }); // e.g. 07:15 PM
   };
 
   // ---- Edit user ----
@@ -324,23 +335,35 @@ const AdminUserActivityTable: React.FC = () => {
                     </div>
                   </td>
 
-                  {/* Last Login */}
-                  <td className="px-4 py-2">
-                    <div className="flex items-center gap-2 text-gray-700">
-                      <Clock className="h-4 w-4 text-gray-400" />
-                      <span>{formatForDisplay(u.lastLogin)}</span>
+                  {/* Last Login – date + time */}
+                  <td className="px-4 py-2 align-top">
+                    <div className="flex flex-col text-gray-700">
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-gray-400" />
+                        <span>{formatDate(u.lastLogin)}</span>
+                      </div>
+                      <span className="ml-6 text-xs text-gray-500">
+                        {formatTime(u.lastLogin)}
+                      </span>
                     </div>
                   </td>
 
-                  {/* Last Logout */}
-                  <td className="px-4 py-2">
-                    <div className="flex items-center gap-2 text-gray-700">
-                      <LogOut className="h-4 w-4 text-gray-400" />
-                      <span>
-                        {u.lastLogout
-                          ? formatForDisplay(u.lastLogout)
-                          : "Active / N/A"}
-                      </span>
+                  {/* Last Logout – date + time or Active / N/A */}
+                  <td className="px-4 py-2 align-top">
+                    <div className="flex flex-col text-gray-700">
+                      <div className="flex items-center gap-2">
+                        <LogOut className="h-4 w-4 text-gray-400" />
+                        <span>
+                          {u.lastLogout
+                            ? formatDate(u.lastLogout)
+                            : "Active / N/A"}
+                        </span>
+                      </div>
+                      {u.lastLogout && (
+                        <span className="ml-6 text-xs text-gray-500">
+                          {formatTime(u.lastLogout)}
+                        </span>
+                      )}
                     </div>
                   </td>
 
