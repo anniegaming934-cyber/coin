@@ -12,6 +12,7 @@ import paymentRoutes from "./routes/payments.js";
 import loginRoutes from "./routes/logins.js";
 import statsRoutes from "./routes/stats.js";
 import healthRoutes from "./routes/health.js";
+import adminUserRoutes from "./routes/adminUsers.js";
 
 const app = express();
 
@@ -43,6 +44,7 @@ app.use("/api", paymentRoutes);
 app.use("/api", loginRoutes);
 app.use("/api", statsRoutes);
 app.use("/api", healthRoutes);
+app.use("/api/admin/users", adminUserRoutes);
 
 // ✅ start server locally (Vercel will NOT run this)
 if (!isVercel) {

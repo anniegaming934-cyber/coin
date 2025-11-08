@@ -6,6 +6,38 @@ import { connectDB } from "../config/db.js"; // ✅ use your existing DB helper
 
 const router = express.Router();
 
+i;
+
+// GET /api/logins/all
+router.get("/all", async (_req, res) => {
+  try {
+    await connectDB();
+
+    const logs = await LoginHistory.find({})
+      .sort({ loggedInAt: -1 })
+      .populate("userId", "name email")
+      .lean();
+
+    // Normalize to what the frontend expects
+    const mapped = logs.map((log) => ({
+      _id: String(log._id),
+      userId: log.userId ? String(log.userId._id) : null,
+      userEmail: log.userId?.email || log.email || "",
+      userName: log.userId?.name || "",
+      loginTime: log.loggedInAt || log.createdAt,
+      logoutTime: log.loggedOutAt || null,
+      createdAt: log.createdAt,
+    }));
+
+    res.json(mapped);
+  } catch (err) {
+    console.error("Failed to fetch login history:", err);
+    res
+      .status(500)
+      .json({ message: "Failed to fetch login records", error: err.message });
+  }
+});
+
 // --------------------------
 // POST /api/logins/start
 // Create new login record
