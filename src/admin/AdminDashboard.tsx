@@ -32,7 +32,7 @@ const GAMES_API = "/api/games";
 const PAY_API = "/api"; // /api/totals, /api/payments/*, /api/reset
 const LOGINS_API = "/api/logins";
 const COIN_VALUE = 0.15;
-console.log("dsfsd", GAMES_API);
+console. log("dsfsd", GAMES_API);
 const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
   const [games, setGames] = useState<Game[]>([]);
   const [editingGameId, setEditingGameId] = useState<number | null>(null);

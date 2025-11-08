@@ -15,6 +15,7 @@ export type SidebarSection =
   | "overview"
   | "games"
   | "charts"
+  | "UserAdminTable"
   | "userHistroy"
   | "paymentsHistory"
   | "settings";
@@ -40,6 +41,7 @@ const Sidebar: FC<SidebarProps> = ({
     { id: "overview", label: "Overview", icon: LayoutDashboard },
     { id: "games", label: "Games", icon: Gamepad2 },
     { id: "charts", label: "Charts", icon: BarChart2 },
+    { id: "UserAdminTable", label: "UserAdmin Table", icon: BarChart2 },
     { id: "userHistroy", label: "User Histroy", icon: BarChart2 },
     {
       id: "paymentsHistory",
