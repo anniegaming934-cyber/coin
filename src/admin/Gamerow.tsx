@@ -8,11 +8,11 @@ import { TrendingUp, TrendingDown, Gamepad, Edit, Save, X } from "lucide-react";
 export interface Game {
   id: number;
   name: string;
-  coinsSpent: number;       // 👈 freeplay + deposit total
-  coinsEarned: number;      // 👈 redeem
-  coinsRecharged: number;   // 👈 coin recharged (top-up)
+  coinsSpent: number; // 👈 freeplay + deposit total
+  coinsEarned: number; // 👈 redeem
+  coinsRecharged: number; // 👈 coin recharged (top-up)
   lastRechargeDate?: string;
-  totalCoins?: number;      // optional, comes from backend
+  totalCoins?: number; // optional, comes from backend
 }
 
 interface GameRowProps {
@@ -105,9 +105,9 @@ const GameRow: FC<GameRowProps> = ({
   };
 
   const handleLogTransaction = () => {
-    const spent = toNonNegNumber(spentStr);      // freeplay + deposit (change)
-    const earned = toNonNegNumber(earnedStr);    // redeem (change)
-    const recharge = toNonNegNumber(rechargeStr);// coin recharged (change)
+    const spent = toNonNegNumber(spentStr); // freeplay + deposit (change)
+    const earned = toNonNegNumber(earnedStr); // redeem (change)
+    const recharge = toNonNegNumber(rechargeStr); // coin recharged (change)
 
     if ([spent, earned, recharge].some((n) => !Number.isFinite(n))) return;
 
@@ -119,8 +119,7 @@ const GameRow: FC<GameRowProps> = ({
     const newCoinsRecharged = game.coinsRecharged + recharge;
 
     // net = redeem - (freeplay + deposit + recharged)
-    const totalCoinsRaw =
-      newCoinsEarned - (newCoinsSpent + newCoinsRecharged);
+    const totalCoinsRaw = newCoinsEarned - (newCoinsSpent + newCoinsRecharged);
 
     const totalCoinsAfter = Math.abs(totalCoinsRaw);
 
@@ -173,8 +172,8 @@ const GameRow: FC<GameRowProps> = ({
               <p className="mt-1 text-sm text-gray-400">
                 Update{" "}
                 <span className="font-medium text-gray-200">{game.name}</span>{" "}
-                coins for today. Set freeplay + deposit, redeem, and any
-                coin recharge with date.
+                coins for today. Set freeplay + deposit, redeem, and any coin
+                recharge with date.
               </p>
 
               <div className="mt-5 space-y-3 text-left">
@@ -265,8 +264,7 @@ const GameRow: FC<GameRowProps> = ({
   // DISPLAY MODE — TABLE ROW
   // ============================
 
-  const derivedNet =
-    game.coinsEarned - (game.coinsSpent + game.coinsRecharged);
+  const derivedNet = game.coinsEarned - (game.coinsSpent + game.coinsRecharged);
 
   const totalCoinValue =
     typeof game.totalCoins === "number"
