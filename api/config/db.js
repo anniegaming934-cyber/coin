@@ -1,31 +1,38 @@
-// api/config/db.js
 import mongoose from "mongoose";
+import dotenv from "dotenv";
 
-const MONGODB_URI = process.env.MONGODB_URI;
-const DB_NAME = process.env.MONGODB_DB || "coin";
-
-console.log("🔍 Using MONGODB_URI:", MONGODB_URI);
-console.log("🔍 Using DB_NAME:", DB_NAME);
-
-if (!MONGODB_URI) {
-  console.error("❌ Missing MONGODB_URI in environment variables");
-}
+dotenv.config();
+dotenv.config({ path: ".env.local" });
 
 let mongoPromise = null;
 
 export async function connectDB() {
-  if (mongoose.connection.readyState === 1) {
-    // already connected
-    return;
+  const uri = process.env.MONGODB_URI;
+  const dbName = process.env.MONGODB_DB || "coin";
+
+  console.log("DEBUG connectDB MONGODB_URI:", uri);
+
+  if (!uri) {
+    console.error("❌ MONGODB_URI is missing");
+    throw new Error("MONGODB_URI not set");
   }
 
+  if (mongoose.connection.readyState === 1) return;
+
   if (!mongoPromise) {
-    console.log("🔌 Connecting to MongoDB...");
-    mongoPromise = mongoose.connect(MONGODB_URI, {
-      dbName: DB_NAME,
-    });
+    console.log("📡 Connecting to MongoDB...");
+    mongoPromise = mongoose
+      .connect(uri, { dbName })
+      .then((conn) => {
+        console.log("✅ MongoDB connected");
+        return conn;
+      })
+      .catch((err) => {
+        console.error("❌ MongoDB connection error in connectDB:", err);
+        mongoPromise = null;
+        throw err;
+      });
   }
 
   await mongoPromise;
-  console.log("✅ MongoDB connected");
 }

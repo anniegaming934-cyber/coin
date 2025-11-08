@@ -4,14 +4,18 @@ import { connectDB } from "../config/db.js";
 
 const router = express.Router();
 
-// 🩺 Health check route
-// GET /api/health
-router.get("/health", async (_, res) => {
+router.get("/", async (_req, res) => {
   try {
     await connectDB();
     res.json({ ok: true, db: "connected" });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: "DB connection failed" });
+  } catch (err) {
+    console.error("❌ DB connect error in /api/health:", err);
+    res.status(500).json({
+      ok: false,
+      error: err.message,
+      code: err.code,
+      codeName: err.codeName,
+    });
   }
 });
 

@@ -11,22 +11,21 @@ import { ensureAdminUser } from "../utils/admin.js";
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "dev_jwt_secret_change_me";
 
-// ✅ Lazy init: connect DB + ensure admin ONCE
+// Make sure DB + admin user exist before first auth operation
 let adminInitialized = false;
 async function ensureAdminOnce() {
   if (adminInitialized) return;
-
-  await connectDB(); // 👈 make sure MongoDB is connected
-  await ensureAdminUser(); // 👈 now safe to hit `users.findOne()`
+  await connectDB(); // 👈 connect Mongo
+  await ensureAdminUser(); // 👈 ensure / update admin from env
   adminInitialized = true;
 }
 
-// -----------------------------
-// POST /api/auth/register
-// -----------------------------
+/* ---------------------------
+ *  POST /api/auth/register
+ * ------------------------- */
 router.post("/register", async (req, res) => {
   try {
-    await ensureAdminOnce(); // DB + admin user
+    await ensureAdminOnce();
 
     const { name, email, password } = req.body;
 
@@ -85,26 +84,25 @@ router.post("/register", async (req, res) => {
     });
   } catch (err) {
     console.error("Register error:", err);
-    return res
-      .status(500)
-      .json({ message: "Server error during registration" });
+    return res.status(500).json({
+      message: "Server error during registration",
+      error: err.message,
+    });
   }
 });
 
-// -----------------------------
-// POST /api/auth/login
-// -----------------------------
+/* ---------------------------
+ *  POST /api/auth/login
+ * ------------------------- */
 router.post("/login", async (req, res) => {
   try {
-    await ensureAdminOnce(); // DB + admin
+    await ensureAdminOnce();
 
     const { email, password } = req.body;
-
-    if (!email || typeof email !== "string") {
-      return res.status(400).json({ message: "Email is required" });
-    }
-    if (!password || typeof password !== "string") {
-      return res.status(400).json({ message: "Password is required" });
+    if (!email || !password) {
+      return res
+        .status(400)
+        .json({ message: "Email and password are required" });
     }
 
     const normalizedEmail = email.toLowerCase().trim();
@@ -153,19 +151,22 @@ router.post("/login", async (req, res) => {
     });
   } catch (err) {
     console.error("Login error:", err);
-    return res.status(500).json({ message: "Server error during login" });
+    return res
+      .status(500)
+      .json({ message: "Server error during login", error: err.message });
   }
 });
 
-// -----------------------------
-// GET /api/auth/me
-// -----------------------------
+/* ---------------------------
+ *  GET /api/auth/me
+ *  (validate token + get user)
+ * ------------------------- */
 router.get("/me", async (req, res) => {
   try {
-    await ensureAdminOnce(); // DB + admin
+    await ensureAdminOnce();
 
-    const auth = req.headers.authorization || "";
-    const [, token] = auth.split(" ");
+    const authHeader = req.headers.authorization || "";
+    const [, token] = authHeader.split(" ");
 
     if (!token) {
       return res.status(401).json({ message: "Missing token" });
@@ -174,7 +175,7 @@ router.get("/me", async (req, res) => {
     let payload;
     try {
       payload = jwt.verify(token, JWT_SECRET);
-    } catch {
+    } catch (err) {
       return res.status(401).json({ message: "Invalid token" });
     }
 
@@ -185,7 +186,7 @@ router.get("/me", async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    res.json({
+    return res.json({
       id: user._id,
       name: user.name,
       email: user.email,
@@ -193,8 +194,10 @@ router.get("/me", async (req, res) => {
       isAdmin: user.isAdmin,
     });
   } catch (err) {
-    console.error("me error:", err);
-    res.status(500).json({ message: "Server error" });
+    console.error("Me error:", err);
+    return res
+      .status(500)
+      .json({ message: "Server error", error: err.message });
   }
 });
 

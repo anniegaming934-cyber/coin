@@ -2,7 +2,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-
+dotenv.config();
 dotenv.config({ path: ".env.local" }); // or just dotenv.config() if you rename to .env
 
 // ✅ import all routers
@@ -36,8 +36,8 @@ app.use((req, res, next) => {
   next();
 });
 
-// ✅ mount routes
-app.use("/api/auth", authRoutes); // 🔹 /api/auth/login etc.
+//  ✅ mount routes
+app.use("/api/auth", authRoutes);
 app.use("/api", gameRoutes);
 app.use("/api", paymentRoutes);
 app.use("/api", loginRoutes);
