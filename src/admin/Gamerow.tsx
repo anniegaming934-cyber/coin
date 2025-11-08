@@ -177,7 +177,7 @@ const GameRow: FC<GameRowProps> = ({
               </p>
 
               <div className="mt-5 space-y-3 text-left">
-                {/* <div>
+                <div>
                   <label className="block text-xs text-gray-400 mb-1">
                     Freeplay + Deposit (Spent)
                   </label>
@@ -203,7 +203,7 @@ const GameRow: FC<GameRowProps> = ({
                     className={inputBox}
                     placeholder="0"
                   />
-                </div> */}
+                </div>
 
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">
