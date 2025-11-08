@@ -8,11 +8,11 @@ import { TrendingUp, TrendingDown, Gamepad, Edit, Save, X } from "lucide-react";
 export interface Game {
   id: number;
   name: string;
-  coinsEarned: number;
-  coinsSpent: number;
-  coinsRecharged: number;
+  coinsSpent: number;       // 👈 freeplay + deposit total
+  coinsEarned: number;      // 👈 redeem
+  coinsRecharged: number;   // 👈 coin recharged (top-up)
   lastRechargeDate?: string;
-  totalCoins?: number; // 👈 optional, comes from backend once stored
+  totalCoins?: number;      // optional, comes from backend
 }
 
 interface GameRowProps {
@@ -25,7 +25,7 @@ interface GameRowProps {
     spentChange: number,
     earnedChange: number,
     rechargeChange: number,
-    totalCoinsAfter: number, // 👈 NEW PARAM
+    totalCoinsAfter: number,
     rechargeDateISO?: string
   ) => void;
   onCancel: () => void;
@@ -44,22 +44,22 @@ const toTodayISO = () => {
 };
 
 // ===================================
-// 2. HEADER ROW (TABLE HEADER)
+// 2. HEADER ROW
 // ===================================
 
 export const GameHeaderRow: FC = () => (
   <div className="grid grid-cols-12 gap-4 px-4 py-3 bg-gray-100 border-b border-gray-300 text-[11px] md:text-xs font-semibold uppercase tracking-wide text-gray-600 rounded-t-lg">
     <div className="col-span-3">Game</div>
-    <div className="col-span-2">Spent</div>
-    <div className="col-span-2">Earned</div>
-    <div className="col-span-2">Recharged</div>
+    <div className="col-span-2">Freeplay + Deposit</div>
+    <div className="col-span-2">Redeem</div>
+    <div className="col-span-2">Coin Recharged / Date</div>
     <div className="col-span-1">Total coin</div>
-    <div className="col-span-2 text-right">P&L / Actions</div>
+    <div className="col-span-2 text-right">P&amp;L / Actions</div>
   </div>
 );
 
 // ===================================
-// 3. GAME ROW COMPONENT
+// 3. GAME ROW
 // ===================================
 
 const GameRow: FC<GameRowProps> = ({
@@ -71,7 +71,6 @@ const GameRow: FC<GameRowProps> = ({
   onCancel,
   onDelete,
 }) => {
-  // Use strings so fields can be truly empty
   const [spentStr, setSpentStr] = useState<string>("");
   const [earnedStr, setEarnedStr] = useState<string>("");
   const [rechargeStr, setRechargeStr] = useState<string>("");
@@ -80,14 +79,14 @@ const GameRow: FC<GameRowProps> = ({
     game.lastRechargeDate || toTodayISO()
   );
 
-  // Derived metrics for display row
-  // Rule: freeplay & deposit subtract, redeem adds
-  // netCoinFlow = redeem - (freeplay + deposit)
+  // 💰 Logic:
+  // spent  = freeplay + deposit
+  // earned = redeem
+  // recharged = coin top-up
+  // net = redeem - (freeplay + deposit + recharged)
   const netCoinFlow =
-    game.coinsSpent - (game.coinsEarned + game.coinsRecharged);
-  {
-    console.log("asdad", netCoinFlow);
-  }
+    game.coinsEarned - (game.coinsSpent + game.coinsRecharged);
+
   const pnl = netCoinFlow * coinValue;
   const isProfit = pnl >= 0;
 
@@ -99,7 +98,6 @@ const GameRow: FC<GameRowProps> = ({
   const inputBox =
     "w-full p-2 text-sm border border-gray-700 rounded-md bg-[#0b1222] text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500";
 
-  // helper to coerce to non-negative number ("" -> 0)
   const toNonNegNumber = (s: string) => {
     if (s === "" || s === undefined || s === null) return 0;
     const n = Number(s);
@@ -107,30 +105,25 @@ const GameRow: FC<GameRowProps> = ({
   };
 
   const handleLogTransaction = () => {
-    const spent = toNonNegNumber(spentStr);
-    const earned = toNonNegNumber(earnedStr);
-    const recharge = toNonNegNumber(rechargeStr);
+    const spent = toNonNegNumber(spentStr);      // freeplay + deposit (change)
+    const earned = toNonNegNumber(earnedStr);    // redeem (change)
+    const recharge = toNonNegNumber(rechargeStr);// coin recharged (change)
 
-    // block only if any invalid (non-numeric or negative)
     if ([spent, earned, recharge].some((n) => !Number.isFinite(n))) return;
 
     const dateOrUndefined =
       recharge > 0 ? rechargeDateISO || toTodayISO() : undefined;
 
-    // 🔢 compute NEW absolute totals after this transaction
     const newCoinsSpent = game.coinsSpent + spent;
     const newCoinsEarned = game.coinsEarned + earned;
     const newCoinsRecharged = game.coinsRecharged + recharge;
 
-    // 🔢 totalCoins based on your rule:
-    // deposit (recharged) & freeplay (earned) subtract, redeem (spent) adds
-    // net = redeem - (freeplay + deposit)
-    const totalCoinsRaw = newCoinsSpent - (newCoinsEarned + newCoinsRecharged);
+    // net = redeem - (freeplay + deposit + recharged)
+    const totalCoinsRaw =
+      newCoinsEarned - (newCoinsSpent + newCoinsRecharged);
 
-    // store as positive in backend (if you want absolute value)
     const totalCoinsAfter = Math.abs(totalCoinsRaw);
 
-    // send everything up to parent (so it can call backend)
     onUpdate(
       game.id,
       spent,
@@ -140,7 +133,6 @@ const GameRow: FC<GameRowProps> = ({
       dateOrUndefined
     );
 
-    // reset fields and close modal
     setSpentStr("");
     setEarnedStr("");
     setRechargeStr("");
@@ -153,18 +145,15 @@ const GameRow: FC<GameRowProps> = ({
     !Number.isFinite(toNonNegNumber(rechargeStr));
 
   // ============================
-  // EDIT MODE — DARK MODAL CARD
+  // EDIT MODE — MODAL
   // ============================
   if (isEditing) {
     return (
       <div className="fixed inset-0 z-50">
-        {/* Backdrop */}
         <div className="absolute inset-0 bg-black/60" onClick={onCancel} />
 
-        {/* Centered Modal */}
         <div className="absolute inset-0 flex items-center justify-center p-4">
           <div className="relative w-full max-w-md rounded-2xl border border-white/10 bg-[#0f172a] text-gray-100 shadow-2xl">
-            {/* ❌ Cross Button */}
             <button
               onClick={onCancel}
               className="absolute top-3 right-3 p-1.5 rounded-full bg-white/10 hover:bg-white/20 transition"
@@ -173,7 +162,6 @@ const GameRow: FC<GameRowProps> = ({
               <X size={18} className="text-gray-300" />
             </button>
 
-            {/* Icon */}
             <div className="flex justify-center -mt-6">
               <div className="w-12 h-12 rounded-full bg-indigo-600/20 flex items-center justify-center border border-indigo-500/30">
                 <Gamepad className="text-indigo-400" size={20} />
@@ -185,14 +173,14 @@ const GameRow: FC<GameRowProps> = ({
               <p className="mt-1 text-sm text-gray-400">
                 Update{" "}
                 <span className="font-medium text-gray-200">{game.name}</span>{" "}
-                coins for today. Add used, earned, and any recharge with date.
+                coins for today. Set freeplay + deposit, redeem, and any
+                coin recharge with date.
               </p>
 
-              {/* Inputs */}
               <div className="mt-5 space-y-3 text-left">
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">
-                    Coins Used (Spent)
+                    Freeplay + Deposit (Spent)
                   </label>
                   <input
                     type="number"
@@ -206,7 +194,7 @@ const GameRow: FC<GameRowProps> = ({
 
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">
-                    Coins Earned
+                    Redeem (Earned)
                   </label>
                   <input
                     type="number"
@@ -220,7 +208,7 @@ const GameRow: FC<GameRowProps> = ({
 
                 <div>
                   <label className="block text-xs text-gray-400 mb-1">
-                    Coins Recharged
+                    Coin Recharged
                   </label>
                   <input
                     type="number"
@@ -243,12 +231,11 @@ const GameRow: FC<GameRowProps> = ({
                     className={inputBox}
                   />
                   <p className="text-[11px] text-gray-500 mt-1">
-                    Saved only if “Coins Recharged” &gt; 0.
+                    Saved only if “Coin Recharged” &gt; 0.
                   </p>
                 </div>
               </div>
 
-              {/* Actions */}
               <div className="mt-6 flex flex-col gap-2">
                 <button
                   onClick={handleLogTransaction}
@@ -278,8 +265,9 @@ const GameRow: FC<GameRowProps> = ({
   // DISPLAY MODE — TABLE ROW
   // ============================
 
-  // Prefer backend totalCoins if available, otherwise derive from current data
-  const derivedNet = game.coinsSpent - (game.coinsEarned + game.coinsRecharged);
+  const derivedNet =
+    game.coinsEarned - (game.coinsSpent + game.coinsRecharged);
+
   const totalCoinValue =
     typeof game.totalCoins === "number"
       ? game.totalCoins
@@ -294,18 +282,21 @@ const GameRow: FC<GameRowProps> = ({
         </span>
       </div>
 
+      {/* Spent = freeplay + deposit */}
       <div className="col-span-2 text-sm text-gray-700">
         <span className="font-mono text-red-600">
           {game.coinsSpent.toLocaleString()}
         </span>
       </div>
 
+      {/* Earned = redeem */}
       <div className="col-span-2 text-sm text-gray-700">
         <span className="font-mono text-green-600">
           {game.coinsEarned.toLocaleString()}
         </span>
       </div>
 
+      {/* Coin recharged + last recharge date */}
       <div className="col-span-2 text-sm text-gray-700">
         <div className="flex flex-col leading-tight">
           <span className="font-mono text-blue-600">
@@ -334,13 +325,14 @@ const GameRow: FC<GameRowProps> = ({
         </span>
       </div>
 
+      {/* P&L + actions */}
       <div className="col-span-2 text-sm flex items-center justify-end space-x-3">
         <span
           className={`px-2 py-1 rounded-full text-xs font-bold flex items-center ${pnlClass} w-24 justify-center`}
         >
           <PnlIcon size={14} className="mr-1" />
           {formatCurrency(
-            (game.coinsSpent - (game.coinsEarned + game.coinsRecharged)) *
+            (game.coinsEarned - (game.coinsSpent + game.coinsRecharged)) *
               coinValue
           )}
         </span>
