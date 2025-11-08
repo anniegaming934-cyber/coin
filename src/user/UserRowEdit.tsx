@@ -11,6 +11,7 @@ interface UserRowEditProps {
     spentChange: number, // redeem / spend extra
     earnedChange: number, // add winnings
     rechargeChange: number, // deposit / recharge
+    totalCoinsAfter: number, // 👈 NEW
     rechargeDateISO?: string
   ) => void;
   onCancel: () => void;
@@ -56,11 +57,24 @@ const UserRowEdit: FC<UserRowEditProps> = ({
       return;
     }
 
+    // 🔢 Compute new absolute totals for this game
+    const newCoinsSpent = game.coinsSpent + spent;
+    const newCoinsEarned = game.coinsEarned + earned;
+    const newCoinsRecharged = game.coinsRecharged + recharge;
+
+    // 🔢 Your rule: freeplay & deposit subtract, redeem adds
+    // net = redeem - (freeplay + deposit)
+    const rawTotal = newCoinsSpent - (newCoinsEarned + newCoinsRecharged);
+
+    // store as positive totalCoins
+    const totalCoinsAfter = Math.abs(rawTotal);
+
     onSave(
       game.id,
       spent,
       earned,
       recharge,
+      totalCoinsAfter,
       recharge ? rechargeDate : undefined
     );
 

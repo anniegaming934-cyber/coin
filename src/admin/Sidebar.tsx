@@ -8,14 +8,15 @@ import {
   Coins,
   LogOut,
   User,
-  BarChart2, // 👈 new icon for Charts
+  BarChart2, // Charts icon
 } from "lucide-react";
 
 export type SidebarSection =
   | "overview"
   | "games"
   | "charts"
-  | "payments"
+  | "userHistroy"
+  | "paymentsHistory"
   | "settings";
 
 interface SidebarProps {
@@ -38,8 +39,13 @@ const Sidebar: FC<SidebarProps> = ({
   }[] = [
     { id: "overview", label: "Overview", icon: LayoutDashboard },
     { id: "games", label: "Games", icon: Gamepad2 },
-    { id: "charts", label: "Charts", icon: BarChart2 }, // 👈 new Charts link
-    { id: "payments", label: "Payments", icon: Wallet },
+    { id: "charts", label: "Charts", icon: BarChart2 },
+    { id: "userHistroy", label: "User Histroy", icon: BarChart2 },
+    {
+      id: "paymentsHistory",
+      label: "Payment History",
+      icon: Wallet,
+    },
     { id: "settings", label: "Settings", icon: Settings },
   ];
 

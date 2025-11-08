@@ -5,7 +5,10 @@ import axios from "axios";
 
 import Sidebar, { type SidebarSection } from "../admin/Sidebar";
 import UserSessionBar from "./UserSessionBar";
-import PaymentForm, { type PaymentMethod } from "../admin/Paymentform";
+import PaymentForm, {
+  type PaymentMethod,
+  type TxType,
+} from "../admin/Paymentform";
 import PaymentHistory from "../admin/PaymentHistory";
 import UserTable from "./UserTable";
 import UserCharts from "./UserCharts";
@@ -64,18 +67,24 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
     amount,
     method,
     note,
+    playerName,
     date,
+    txType,
   }: {
     amount: number;
     method: PaymentMethod;
     note?: string;
+    playerName?: string;
     date?: string;
+    txType: TxType;
   }) => {
     const { data } = await axios.post(`${PAY_API}/payments`, {
       amount,
       method,
       note,
+      playerName,
       date,
+      txType,
     });
     setPaymentTotals(data.totals);
   };
@@ -106,21 +115,19 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
 
         <header className="flex flex-wrap items-center gap-3 px-4 sm:px-8 py-4 border-b bg-white">
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">
-            {activeSection === "overview" && "Game Dashboard"}
+            {activeSection === "overview" && "Overview"}
             {activeSection === "games" && "Games"}
             {activeSection === "charts" && "Charts"}
-            {activeSection !== "overview" &&
-              activeSection !== "games" &&
-              activeSection !== "charts" &&
-              "Dashboard"}
+            {activeSection === "paymentsHistory" && "Payment History"}
+            {activeSection === "settings" && "Settings"}
           </h1>
         </header>
 
         <main className="flex-1 overflow-y-auto p-4 sm:p-8">
-          {/* OVERVIEW TAB – user summary */}
+          {/* OVERVIEW TAB – summary: cash in/out + table */}
           {activeSection === "overview" && (
             <>
-              {/* 💳 Payment section */}
+              {/* 💳 Payment form + quick totals */}
               <div className="grid grid-cols-1 gap-6 mb-8">
                 <PaymentForm
                   initialTotals={paymentTotals}
@@ -128,7 +135,6 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
                   onRecharge={onRecharge}
                   onReset={onReset}
                 />
-                <PaymentHistory apiBase={PAY_API} />
               </div>
 
               {/* 🧾 User Table */}
@@ -136,7 +142,7 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
             </>
           )}
 
-          {/* GAMES TAB – same table but editable or filtered */}
+          {/* GAMES TAB – just table (same as overview but isolated) */}
           {activeSection === "games" && (
             <div className="mt-4">
               <UserTable />
@@ -150,14 +156,19 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
             </div>
           )}
 
+          {/* PAYMENTS HISTORY TAB – only history list */}
+          {activeSection === "paymentsHistory" && (
+            <div className="mt-4">
+              <PaymentHistory apiBase={PAY_API} />
+            </div>
+          )}
+
           {/* SETTINGS / FUTURE */}
-          {activeSection !== "overview" &&
-            activeSection !== "games" &&
-            activeSection !== "charts" && (
-              <div className="text-sm text-gray-600 mt-8">
-                <p>More sections coming soon (settings, reports, etc.).</p>
-              </div>
-            )}
+          {activeSection === "settings" && (
+            <div className="text-sm text-gray-600 mt-8">
+              <p>More sections coming soon (settings, reports, etc.).</p>
+            </div>
+          )}
         </main>
       </div>
     </div>

@@ -6,7 +6,7 @@ interface LoginFormProps {
   onSuccess: (username: string) => void;
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+// Better base URL: env first, then dev fallback (backend), then ""
 
 const LoginForm: React.FC<LoginFormProps> = ({
   onSwitchToRegister,
@@ -14,6 +14,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
 }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false); // 👈 NEW
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showModal, setShowModal] = useState(false); // modal control
@@ -25,20 +26,35 @@ const LoginForm: React.FC<LoginFormProps> = ({
 
     try {
       const { data } = await axios.post(
-        `${API_BASE_URL}/api/auth/login`,
+        `/api/auth/login`,
         { email, password },
         { headers: { "Content-Type": "application/json" } }
       );
 
-      // ✅ Save token + role for later (admin/user)
       if (data.token) {
         localStorage.setItem("token", data.token);
       }
-      if (data.user?.role) {
-        localStorage.setItem("role", data.user.role); // "admin" or "user"
+
+      const backendRole = data.user?.role as string | undefined;
+      const backendIsAdmin = Boolean(data.user?.isAdmin);
+      const isAdmin =
+        backendIsAdmin ||
+        (backendRole && backendRole.toLowerCase() === "admin");
+
+      const role = isAdmin ? "admin" : "user";
+
+      localStorage.setItem("role", role);
+      localStorage.setItem("isAdmin", isAdmin ? "1" : "0");
+
+      if (data.user?.email) {
+        localStorage.setItem("userEmail", data.user.email);
+      } else {
+        localStorage.setItem("userEmail", email);
       }
 
       const username = data.user?.name || email.split("@")[0] || "User";
+      localStorage.setItem("userName", username);
+
       onSuccess(username);
     } catch (err) {
       const axiosErr = err as AxiosError<any>;
@@ -48,7 +64,6 @@ const LoginForm: React.FC<LoginFormProps> = ({
 
       console.error("❌ Login failed:", message);
 
-      // if credentials incorrect or 401 → show modal
       if (
         message.toLowerCase().includes("invalid") ||
         axiosErr.response?.status === 401
@@ -88,14 +103,26 @@ const LoginForm: React.FC<LoginFormProps> = ({
           <label className="block text-sm font-medium text-slate-700 mb-1">
             Password
           </label>
-          <input
-            type="password"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
-            placeholder="••••••••"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
+
+          {/* 👇 wrapper so the Show/Hide button sits inside the input */}
+          <div className="relative">
+            <input
+              type={showPassword ? "text" : "password"} // 👈 toggle here
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 pr-20 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              placeholder="••••••••"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+
+            <button
+              type="button"
+              onClick={() => setShowPassword((prev) => !prev)}
+              className="absolute inset-y-0 right-2 my-1 px-2 text-xs font-medium text-slate-600 bg-slate-100 rounded-md hover:bg-slate-200"
+            >
+              {showPassword ? "Hide" : "Show"}
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center justify-between text-xs text-slate-600">

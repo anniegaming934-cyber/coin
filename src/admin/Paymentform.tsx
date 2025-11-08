@@ -3,8 +3,6 @@ import { Loader2, DollarSign, RotateCcw, AlertTriangle } from "lucide-react";
 
 export type PaymentMethod = "cashapp" | "paypal" | "chime";
 type Totals = { cashapp: number; paypal: number; chime: number };
-
-// NEW: transaction type
 export type TxType = "cashin" | "cashout";
 
 export interface PaymentFormProps {
@@ -13,10 +11,10 @@ export interface PaymentFormProps {
   onRecharge?: (payload: {
     amount: number;
     method: PaymentMethod;
-    note?: string; // normal note for cash-in
-    playerName?: string; // for cash-out
+    note?: string;
+    playerName?: string;
     date?: string;
-    txType: TxType; // 👈 NEW
+    txType: TxType;
   }) => Promise<void> | void;
   onReset?: () => Promise<Totals> | Totals | void;
 }
@@ -55,7 +53,9 @@ const PaymentForm: FC<PaymentFormProps> = ({
     chime: initialTotals?.chime ?? 0,
   });
 
-  useEffect(() => onTotalsChange?.(totals), [totals, onTotalsChange]);
+  useEffect(() => {
+    onTotalsChange?.(totals);
+  }, [totals, onTotalsChange]);
 
   const overall = useMemo(
     () => totals.cashapp + totals.paypal + totals.chime,
@@ -64,11 +64,10 @@ const PaymentForm: FC<PaymentFormProps> = ({
 
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<PaymentMethod>("cashapp");
-  const [note, setNote] = useState("");
+  const [inputText, setInputText] = useState("");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
-
-  // cash in / cash out
   const [txType, setTxType] = useState<TxType>("cashin");
+  const isCashOut = txType === "cashout";
 
   const [submitting, setSubmitting] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -84,42 +83,42 @@ const PaymentForm: FC<PaymentFormProps> = ({
       return;
     }
 
-    const isCashOut = txType === "cashout";
-    const signedAmt = isCashOut ? -amt : amt; // 👈 local impact on totals
+    const signedAmt = isCashOut ? -amt : amt;
 
     try {
       setSubmitting(true);
       setError(null);
       setOk(null);
 
-      // update local totals (cashout subtracts)
+      // update local totals instantly
       setTotals((prev) => ({
         ...prev,
         [method]: prev[method] + signedAmt,
       }));
 
-      const trimmed = note.trim();
+      const trimmed = inputText.trim();
       const playerName = isCashOut ? trimmed || undefined : undefined;
-      const normalNote = !isCashOut ? trimmed || undefined : undefined;
+      const note = !isCashOut ? trimmed || undefined : undefined;
 
       await onRecharge?.({
-        amount: +amt.toFixed(2), // always positive amount to backend
+        amount: +amt.toFixed(2),
         method,
-        note: normalNote,
+        note,
         playerName,
         date,
         txType,
       });
 
-      if (isCashOut) {
-        const pName = playerName || "player";
-        setOk(`Cash out ${fmtUSD(amt)} to ${pName} via ${method}.`);
-      } else {
-        setOk(`Cash in ${fmtUSD(amt)} via ${method}.`);
-      }
+      setOk(
+        isCashOut
+          ? `Cash out ${fmtUSD(amt)} to ${
+              playerName || "player"
+            } via ${method}.`
+          : `Cash in ${fmtUSD(amt)} via ${method}.`
+      );
 
       setAmount("");
-      setNote("");
+      setInputText("");
     } catch (err: any) {
       setError(err?.message || "Failed to add payment.");
     } finally {
@@ -149,8 +148,6 @@ const PaymentForm: FC<PaymentFormProps> = ({
     `rounded-md px-2 py-1 text-xs font-medium border transition ${
       active ? `${color} text-white` : "border-gray-300 text-gray-700"
     }`;
-
-  const isCashOut = txType === "cashout";
 
   return (
     <>
@@ -227,14 +224,14 @@ const PaymentForm: FC<PaymentFormProps> = ({
             />
           </div>
 
-          {/* Note / Player name */}
+          {/* Note or Player name */}
           <div className="space-y-1">
             <label className="text-xs font-medium text-gray-600">
               {isCashOut ? "Player name" : "Note (optional)"}
             </label>
             <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
               placeholder={isCashOut ? "Enter player name" : "Note (optional)"}
               rows={1}
               className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"

@@ -71,13 +71,12 @@ const UserTable: React.FC = () => {
 
     const gameId = editingGame.id;
 
-    // 1️⃣ Update totals instantly on UI
+    // Update UI totals immediately
     setGames((prev) =>
       prev.map((g) => {
         if (g.id !== gameId) return g;
         return {
           ...g,
-          // logic stays same in backend structure
           coinsEarned: safeNumber(g.coinsEarned) + freeplay,
           coinsSpent: safeNumber(g.coinsSpent) + redeem,
           coinsRecharged: safeNumber(g.coinsRecharged) + deposit,
@@ -85,7 +84,7 @@ const UserTable: React.FC = () => {
       })
     );
 
-    // 2️⃣ UI-only session display
+    // Update session values
     setSessionValues((prev) => {
       const current = prev[gameId] || { freeplay: 0, redeem: 0, deposit: 0 };
       return {
@@ -98,13 +97,12 @@ const UserTable: React.FC = () => {
       };
     });
 
-    // 3️⃣ Close dialog instantly
     setEditingGame(null);
     setFreeplayChange("");
     setRedeemChange("");
     setDepositChange("");
 
-    // 4️⃣ Send to backend (no UI delay)
+    // Send to backend
     setIsSaving(true);
     axios
       .post(`${GAMES_API}/${gameId}/add-moves`, {
@@ -125,9 +123,9 @@ const UserTable: React.FC = () => {
         <thead>
           <tr className="bg-slate-100 text-slate-600 text-xs uppercase font-semibold">
             <th className="px-4 py-3 text-left">Game</th>
-            <th className="px-4 py-3 text-center">Freeplay</th>
-            <th className="px-4 py-3 text-center">Redeem</th>
-            <th className="px-4 py-3 text-center">Deposit</th>
+            <th className="px-4 py-3 text-center">Freeplay (-)</th>
+            <th className="px-4 py-3 text-center">Redeem (+)</th>
+            <th className="px-4 py-3 text-center">Deposit (-)</th>
             <th className="px-4 py-3 text-center">Total Coins</th>
             <th className="px-4 py-3 text-right">Edit</th>
           </tr>
@@ -135,11 +133,17 @@ const UserTable: React.FC = () => {
 
         <tbody className="text-sm text-gray-700">
           {games.map((game) => {
-            const earned = safeNumber(game.coinsEarned);
-            const spent = safeNumber(game.coinsSpent);
-            const recharged = safeNumber(game.coinsRecharged);
+            const earned = safeNumber(game.coinsEarned); // freeplay
+            const spent = safeNumber(game.coinsSpent); // redeem
+            const recharged = safeNumber(game.coinsRecharged); // deposit
 
-            const totalCoins = spent - (earned + recharged); // 🔁 new formula
+            // ✅ Correct formula for your logic:
+            // freeplay subtract, deposit subtract, redeem add
+            const totalCoins = earned + recharged - spent;
+
+            {
+              console.log("sds", totalCoins);
+            }
             const pnl = totalCoins * COIN_VALUE;
 
             const session = sessionValues[game.id] || {
@@ -154,16 +158,22 @@ const UserTable: React.FC = () => {
                   {game.name}
                 </td>
 
-                <td className="px-4 py-3 text-center text-emerald-600 font-semibold">
+                {/* Freeplay – subtracts total */}
+                <td className="px-4 py-3 text-center text-red-500 font-semibold">
                   {session.freeplay.toLocaleString()}
                 </td>
-                <td className="px-4 py-3 text-center text-red-500 font-semibold">
+
+                {/* Redeem – adds to total */}
+                <td className="px-4 py-3 text-center text-emerald-600 font-semibold">
                   {session.redeem.toLocaleString()}
                 </td>
-                <td className="px-4 py-3 text-center text-indigo-500 font-semibold">
+
+                {/* Deposit – subtracts total */}
+                <td className="px-4 py-3 text-center text-red-500 font-semibold">
                   {session.deposit.toLocaleString()}
                 </td>
 
+                {/* Total Coins */}
                 <td className="px-4 py-3 text-center">
                   <div className="flex flex-col items-center">
                     <span
@@ -179,6 +189,7 @@ const UserTable: React.FC = () => {
                   </div>
                 </td>
 
+                {/* Edit Button */}
                 <td className="px-4 py-3 text-right">
                   <button
                     onClick={() => {
@@ -229,7 +240,7 @@ const UserTable: React.FC = () => {
             <div className="space-y-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Freeplay (+)
+                  Freeplay (-)
                 </label>
                 <input
                   type="number"
@@ -253,7 +264,7 @@ const UserTable: React.FC = () => {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Deposit (+)
+                  Deposit (-)
                 </label>
                 <input
                   type="number"

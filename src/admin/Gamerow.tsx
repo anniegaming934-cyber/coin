@@ -12,6 +12,7 @@ export interface Game {
   coinsSpent: number;
   coinsRecharged: number;
   lastRechargeDate?: string;
+  totalCoins?: number; // 👈 optional, comes from backend once stored
 }
 
 interface GameRowProps {
@@ -24,6 +25,7 @@ interface GameRowProps {
     spentChange: number,
     earnedChange: number,
     rechargeChange: number,
+    totalCoinsAfter: number, // 👈 NEW PARAM
     rechargeDateISO?: string
   ) => void;
   onCancel: () => void;
@@ -79,8 +81,13 @@ const GameRow: FC<GameRowProps> = ({
   );
 
   // Derived metrics for display row
-  const totalInflow = game.coinsEarned + game.coinsRecharged;
-  const netCoinFlow = game.coinsSpent - totalInflow;
+  // Rule: freeplay & deposit subtract, redeem adds
+  // netCoinFlow = redeem - (freeplay + deposit)
+  const netCoinFlow =
+    game.coinsSpent - (game.coinsEarned + game.coinsRecharged);
+  {
+    console.log("asdad", netCoinFlow);
+  }
   const pnl = netCoinFlow * coinValue;
   const isProfit = pnl >= 0;
 
@@ -110,7 +117,28 @@ const GameRow: FC<GameRowProps> = ({
     const dateOrUndefined =
       recharge > 0 ? rechargeDateISO || toTodayISO() : undefined;
 
-    onUpdate(game.id, spent, earned, recharge, dateOrUndefined);
+    // 🔢 compute NEW absolute totals after this transaction
+    const newCoinsSpent = game.coinsSpent + spent;
+    const newCoinsEarned = game.coinsEarned + earned;
+    const newCoinsRecharged = game.coinsRecharged + recharge;
+
+    // 🔢 totalCoins based on your rule:
+    // deposit (recharged) & freeplay (earned) subtract, redeem (spent) adds
+    // net = redeem - (freeplay + deposit)
+    const totalCoinsRaw = newCoinsSpent - (newCoinsEarned + newCoinsRecharged);
+
+    // store as positive in backend (if you want absolute value)
+    const totalCoinsAfter = Math.abs(totalCoinsRaw);
+
+    // send everything up to parent (so it can call backend)
+    onUpdate(
+      game.id,
+      spent,
+      earned,
+      recharge,
+      totalCoinsAfter,
+      dateOrUndefined
+    );
 
     // reset fields and close modal
     setSpentStr("");
@@ -249,6 +277,14 @@ const GameRow: FC<GameRowProps> = ({
   // ============================
   // DISPLAY MODE — TABLE ROW
   // ============================
+
+  // Prefer backend totalCoins if available, otherwise derive from current data
+  const derivedNet = game.coinsSpent - (game.coinsEarned + game.coinsRecharged);
+  const totalCoinValue =
+    typeof game.totalCoins === "number"
+      ? game.totalCoins
+      : Math.abs(derivedNet);
+
   return (
     <div className="grid grid-cols-12 gap-4 py-4 px-4 hover:bg-gray-50 transition duration-150 border-b border-gray-200">
       <div className="col-span-3 flex items-center space-x-3">
@@ -283,20 +319,18 @@ const GameRow: FC<GameRowProps> = ({
         </div>
       </div>
 
+      {/* Total coin column */}
       <div className="col-span-1 text-sm">
         <span
           className={`font-mono ${
-            game.coinsSpent - (game.coinsEarned + game.coinsRecharged) < 0
+            derivedNet < 0
               ? "text-green-700"
-              : game.coinsSpent - (game.coinsEarned + game.coinsRecharged) > 0
+              : derivedNet > 0
               ? "text-red-700"
               : "text-gray-500"
           }`}
         >
-          {(
-            game.coinsRecharged -
-            (game.coinsSpent + game.coinsEarned)
-          ).toLocaleString()}
+          {totalCoinValue.toLocaleString()}
         </span>
       </div>
 

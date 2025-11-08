@@ -5,6 +5,7 @@ import { Loader2, Pencil, Trash2, X, Check, AlertTriangle } from "lucide-react";
 
 export type PaymentMethod = "cashapp" | "paypal" | "chime";
 type TxType = "cashin" | "cashout";
+type FilterType = "all" | "cashin" | "cashout";
 
 interface Payment {
   id: string;
@@ -12,8 +13,8 @@ interface Payment {
   method: PaymentMethod;
   note?: string | null;
   date: string; // "YYYY-MM-DD"
-  createdAt: string; // full ISO timestamp
-  txType?: TxType; // 👈 may be missing for old records
+  createdAt: string; // ISO
+  txType?: TxType;
 }
 
 interface PaymentHistoryProps {
@@ -22,6 +23,19 @@ interface PaymentHistoryProps {
 
 const fmtUSD = (n: number) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+
+// 12-hour time formatter
+const fmtTime12h = (iso: string | undefined) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+};
+const CASHOUT_API = "/api/payments/cashout";
 
 const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
   const [date, setDate] = useState<string>(() => {
@@ -32,6 +46,9 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 🔽 type filter
+  const [filterType, setFilterType] = useState<FilterType>("all");
 
   // editing state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -91,7 +108,7 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
     setEditNote("");
     setEditTxType("cashin");
   };
-
+  
   const saveEdit = async (id: string) => {
     const amt = Number(editAmount);
     if (!Number.isFinite(amt) || amt <= 0) {
@@ -105,11 +122,11 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
         amount: amt,
         method: editMethod,
         note: editNote.trim() || null,
-        date, // keep same date as current filter (optional)
-        txType: editTxType, // 👈 send to backend
+        date,
+        txType: editTxType,
       });
 
-      await loadPayments(); // refresh list
+      await loadPayments();
       cancelEdit();
     } catch (e) {
       console.error("Failed to update payment:", e);
@@ -126,7 +143,6 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
     setShowDeleteModal(true);
   };
 
-  // confirm delete
   const confirmDelete = async () => {
     if (!deleteId) return;
 
@@ -152,6 +168,15 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
     setDeleteTarget(null);
   };
 
+  // apply type filter
+  const filteredPayments = payments.filter((p) => {
+    const tx = (p.txType ?? "cashin") as TxType;
+    if (filterType === "all") return true;
+    return tx === filterType;
+  });
+
+  const isCashOutView = filterType === "cashout";
+
   return (
     <>
       <div className="bg-white rounded-2xl shadow-md p-5 space-y-4">
@@ -160,16 +185,35 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
             Payments by Date
           </h2>
 
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">
-              Select Date
-            </label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500"
-            />
+          <div className="flex flex-wrap items-end gap-4">
+            {/* Date picker */}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Select Date
+              </label>
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+
+            {/* Type filter */}
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                Type
+              </label>
+              <select
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value as FilterType)}
+                className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="all">All</option>
+                <option value="cashin">Cash In</option>
+                <option value="cashout">Cash Out</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -186,14 +230,14 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
           </p>
         )}
 
-        {!loading && !error && payments.length === 0 && (
+        {!loading && !error && filteredPayments.length === 0 && (
           <p className="text-sm text-gray-500 bg-gray-50 border border-dashed border-gray-200 rounded-lg px-3 py-4 text-center">
-            No payments recorded for <span className="font-medium">{date}</span>
-            .
+            No payments recorded for <span className="font-medium">{date}</span>{" "}
+            with this filter.
           </p>
         )}
 
-        {!loading && !error && payments.length > 0 && (
+        {!loading && !error && filteredPayments.length > 0 && (
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
@@ -201,14 +245,18 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                   <th className="px-3 py-2">Type</th>
                   <th className="px-3 py-2">Method</th>
                   <th className="px-3 py-2">Amount</th>
-                  <th className="px-3 py-2">Note</th>
+                  {/* 👇 change header label if viewing cash out */}
+                  <th className="px-3 py-2">
+                    {isCashOutView ? "Name" : "Note"}
+                  </th>
                   <th className="px-3 py-2">Time</th>
                   <th className="px-3 py-2 text-right">Actions</th>
                 </tr>
               </thead>
+
               <tbody className="divide-y divide-gray-100">
-                {payments.map((p) => {
-                  const time = p.createdAt?.slice(11, 16) || ""; // HH:MM
+                {filteredPayments.map((p) => {
+                  const time = fmtTime12h(p.createdAt); // 12h format
                   const isEditing = editingId === p.id;
                   const tx = (p.txType ?? "cashin") as TxType;
                   const isOut = tx === "cashout";
@@ -257,21 +305,21 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                           />
                         </td>
 
-                        {/* Note edit */}
+                        {/* Name / Note edit */}
                         <td className="px-3 py-2">
                           <input
                             type="text"
                             value={editNote}
                             onChange={(e) => setEditNote(e.target.value)}
                             className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
-                            placeholder="Note"
+                            placeholder={isCashOutView ? "Name" : "Note"}
                           />
                         </td>
 
-                        {/* Time (read-only) */}
+                        {/* Time read-only */}
                         <td className="px-3 py-2 text-gray-500">{time}</td>
 
-                        {/* Actions: Save / Cancel */}
+                        {/* Actions */}
                         <td className="px-3 py-2">
                           <div className="flex justify-end gap-2">
                             <button
@@ -296,7 +344,7 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                     );
                   }
 
-                  // normal row (not editing)
+                  // normal row
                   return (
                     <tr key={p.id} className="hover:bg-gray-50">
                       {/* Type badge */}
@@ -312,9 +360,10 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                         </span>
                       </td>
 
+                      {/* Method */}
                       <td className="px-3 py-2 capitalize">{p.method}</td>
 
-                      {/* Amount with + / - & color */}
+                      {/* Amount with + / - */}
                       <td
                         className={`px-3 py-2 font-medium ${
                           isOut ? "text-red-600" : "text-emerald-600"
@@ -324,14 +373,19 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                         {fmtUSD(p.amount)}
                       </td>
 
+                      {/* Name or Note */}
                       <td className="px-3 py-2 text-gray-600">
-                        {p.note || (
+                        {p.note ? (
+                          <span>{p.note}</span>
+                        ) : (
                           <span className="italic text-gray-400">—</span>
                         )}
                       </td>
 
+                      {/* Time in 12h format */}
                       <td className="px-3 py-2 text-gray-500">{time}</td>
 
+                      {/* Actions */}
                       <td className="px-3 py-2">
                         <div className="flex justify-end gap-2">
                           <button
@@ -361,7 +415,7 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
         )}
       </div>
 
-      {/* 🟥 Delete Confirmation Modal */}
+      {/* Delete Confirmation Modal */}
       {showDeleteModal && deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">

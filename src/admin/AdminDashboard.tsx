@@ -5,9 +5,13 @@ import axios from "axios";
 
 import GameRow, { GameHeaderRow } from "./Gamerow";
 import AddGameForm from "./Addgame";
-import PaymentForm, { type PaymentMethod } from "./Paymentform";
+import PaymentForm, {
+  type PaymentMethod,
+  type PaymentFormProps,
+} from "./Paymentform";
 import PaymentHistory from "./PaymentHistory";
 import Sidebar, { type SidebarSection } from "./Sidebar";
+import AdminLoginTable from "./AdminLoginTable"; // 👈 NEW
 
 interface Game {
   id: number;
@@ -25,10 +29,10 @@ interface AdminDashboardProps {
 
 // API constants
 const GAMES_API = "/api/games";
-const PAY_API = "/api"; // /api/totals, /api/payments, /api/reset
+const PAY_API = "/api"; // /api/totals, /api/payments/*, /api/reset
 const LOGINS_API = "/api/logins";
 const COIN_VALUE = 0.15;
-
+console.log("dsfsd", GAMES_API);
 const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
   const [games, setGames] = useState<Game[]>([]);
   const [editingGameId, setEditingGameId] = useState<number | null>(null);
@@ -178,29 +182,33 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
   };
 
   // ---------------------------
-  // Payments
+  // Payments (cashin / cashout separate)
   // ---------------------------
-  const onRecharge = async ({
-    amount,
-    method,
-    note,
-    date,
-  }: {
-    amount: number;
-    method: PaymentMethod;
-    note?: string;
-    date?: string;
-  }) => {
-    const { data } = await axios.post(`${PAY_API}/payments`, {
-      amount,
-      method,
-      note,
-      date,
-    });
-    setPaymentTotals(data.totals);
+  const onRecharge: PaymentFormProps["onRecharge"] = async (payload) => {
+    if (!payload) return;
+
+    const { txType, note, playerName, date, ...rest } = payload;
+
+    if (txType === "cashout") {
+      // cash OUT endpoint
+      const { data } = await axios.post(`${PAY_API}/payments/cashout`, {
+        ...rest,
+        playerName,
+        date,
+      });
+      setPaymentTotals(data.totals);
+    } else {
+      // cash IN endpoint
+      const { data } = await axios.post(`${PAY_API}/payments/cashin`, {
+        ...rest,
+        note,
+        date,
+      });
+      setPaymentTotals(data.totals);
+    }
   };
 
-  const onReset = async () => {
+  const onReset: PaymentFormProps["onReset"] = async () => {
     const { data } = await axios.post(`${PAY_API}/reset`);
     setPaymentTotals(data.totals);
     return data.totals;
@@ -327,8 +335,12 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                 </div>
               </div>
 
-              {/* Payments + games */}
+              {/* 👇 NEW: Login history table for admin */}
+              <div className="mb-8">
+                <AdminLoginTable />
+              </div>
 
+              {/* Payments + games */}
               <div className="mb-10 gap-6 mt-6">
                 <AddGameForm apiUrl={GAMES_API} onGameAdded={fetchGames} />
               </div>

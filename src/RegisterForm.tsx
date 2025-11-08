@@ -6,9 +6,9 @@ interface RegisterFormProps {
   onSuccess: (username: string) => void; // sends username to parent
 }
 
-// Use same base URL idea as LoginForm
-// Set VITE_API_BASE_URL for production if needed
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  (import.meta.env.DEV ? "http://localhost:3000" : "");
 
 const RegisterForm: React.FC<RegisterFormProps> = ({
   onSwitchToLogin,
