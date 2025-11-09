@@ -100,7 +100,7 @@ const AdminUserActivityTable: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const { data } = await axios.get<RawActivity[]>(`${API_BASE}/logins/all`);
+      const { data } = await axios.get<RawActivity[]>(`${API_BASE}/all`);
 
       // Map by user id/email to get unique users
       const map = new Map<string, UserRow>();
