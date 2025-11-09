@@ -25,7 +25,12 @@
     "src",
     "tailwind.config.js",
     "postcss.config.js",
-    "server",
-    "server/config"
-  ]
+    "backend/ss",
+    "backend/config",
+    "backend/middleware",
+    "backend/models",
+    "backend/routes",
+    "backend/utils",
+    "backend/index.js"
+, "backend/server.js"  ]
 }

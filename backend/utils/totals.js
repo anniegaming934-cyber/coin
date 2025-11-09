@@ -1,6 +1,6 @@
 // api/utils/totals.js
-import Payment from "../models/Payment.js";
-import { connectDB } from "../config/db.js";
+import Payment from "../../models/Payment.js";
+import { connectDB } from "../../config/db.js";
 import { validMethods } from "./numbers.js";
 
 export async function computeTotals() {

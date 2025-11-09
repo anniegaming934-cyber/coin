@@ -1,16 +1,12 @@
 import React, { useState } from "react";
 import axios, { AxiosError } from "axios";
-
+import { API_BASE } from "./apiConfig";
 interface LoginFormProps {
   onSwitchToRegister: () => void;
   onSuccess: (username: string) => void;
 }
 
 // Better base URL: env first, then dev fallback (backend), then ""
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ||
-  (import.meta.env.DEV ? "http://localhost:3000" : "");
-console.log("API_BASE_URL =", API_BASE_URL);
 
 const LoginForm: React.FC<LoginFormProps> = ({
   onSwitchToRegister,
@@ -30,7 +26,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
 
     try {
       const { data } = await axios.post(
-        `${API_BASE_URL}/api/auth/login`,
+        `${API_BASE}/api/auth/login`,
         { email, password },
         { headers: { "Content-Type": "application/json" } }
       );

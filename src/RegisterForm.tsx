@@ -1,14 +1,11 @@
 import React, { useState } from "react";
 import axios, { AxiosError } from "axios";
+import { API_BASE } from "./apiConfig";
 
 interface RegisterFormProps {
   onSwitchToLogin: () => void;
   onSuccess: (username: string) => void; // sends username to parent
 }
-
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ||
-  (import.meta.env.DEV ? "http://localhost:3000" : "");
 
 const RegisterForm: React.FC<RegisterFormProps> = ({
   onSwitchToLogin,
@@ -40,7 +37,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({
       console.log("Register data:", { name, email, password });
 
       const { data } = await axios.post(
-        `${API_BASE_URL}/api/auth/register`,
+        `${API_BASE}/api/auth/register`,
         { name, email, password },
         { headers: { "Content-Type": "application/json" } }
       );

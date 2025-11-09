@@ -1,6 +1,6 @@
 // api/routes/health.js
 import express from "express";
-import { connectDB } from "../config/db.js";
+import { connectDB } from "../../config/db.js";
 
 const router = express.Router();
 

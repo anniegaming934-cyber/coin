@@ -2,8 +2,8 @@
 import express from "express";
 import { nanoid } from "nanoid";
 
-import { connectDB } from "../config/db.js";
-import Payment from "../models/Payment.js";
+import { connectDB } from "../../config/db.js";
+import Payment from "../../models/Payment.js";
 import { validMethods } from "../utils/numbers.js";
 import { computeTotals } from "../utils/totals.js";
 

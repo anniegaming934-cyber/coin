@@ -1,7 +1,7 @@
 // api/routes/logins.js
 import express from "express";
-import { connectDB } from "../config/db.js";
-import LoginHistory from "../models/LoginHistory.js";
+import { connectDB } from "../../config/db.js";
+import LoginHistory from "../../models/LoginHistory.js";
 
 const router = express.Router();
 
