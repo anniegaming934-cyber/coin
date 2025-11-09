@@ -1,8 +1,8 @@
 import mongoose from "mongoose";
 import dotenv from "dotenv";
 
-dotenv.config();
-dotenv.config({ path: ".env.local" });
+// OR: if you want to support both, but prefer .env.local, use override:
+dotenv.config({ path: ".env.local", override: true });
 
 let mongoPromise = null;
 
