@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import { connectDB } from "../config/db.js";
 import User from "../models/User.js";
 import LoginHistory from "../models/LoginHistory.js";
-import { requireAdmin } from "../config/middleware/requireAdmin.js";
+import { requireAdmin } from "../middleware/requireAdmin.js";
 
 const router = express.Router();
 

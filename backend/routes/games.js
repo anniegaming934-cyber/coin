@@ -1,8 +1,8 @@
 // api/routes/games.js
 import express from "express";
-import { connectDB } from "../../config/db.js";
-import Game from "../../models/Game.js";
-import UserActivity from "../../models/UserActivity.js";
+import { connectDB } from "../config/db.js";
+import Game from "../models/Game.js";
+import UserActivity from "../models/UserActivity.js";
 import { safeNum } from "../utils/numbers.js";
 
 const router = express.Router();

@@ -7,6 +7,7 @@ interface LoginFormProps {
 }
 
 // Better base URL: env first, then dev fallback (backend), then ""
+const API_BASE_URL = API_BASE;
 
 const LoginForm: React.FC<LoginFormProps> = ({
   onSwitchToRegister,
@@ -26,7 +27,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
 
     try {
       const { data } = await axios.post(
-        `${API_BASE}/api/auth/login`,
+        `${API_BASE_URL}/api/auth/login`,
         { email, password },
         { headers: { "Content-Type": "application/json" } }
       );
