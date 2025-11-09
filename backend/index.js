@@ -2,10 +2,10 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-dotenv.config();
-dotenv.config({ path: ".env.local" }); // or just dotenv.config() if you rename to .env
 
-// ✅ import all routers
+// 🔐 Load env vars (prefer .env.local in dev, Railway uses real env vars)
+dotenv.config({ path: ".env.local", override: true });
+
 import authRoutes from "./routes/auth.js";
 import gameRoutes from "./routes/games.js";
 import paymentRoutes from "./routes/payments.js";
@@ -16,22 +16,40 @@ import adminUserRoutes from "./routes/adminUsers.js";
 
 const app = express();
 
-const isVercel = process.env.VERCEL === "1";
+// 🌍 Allowed frontend origins
+// - FRONTEND_ORIGIN: your deployed Vercel frontend
+// - Local dev: Vite (5173) and Vercel dev (3000)
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN; // e.g. https://coin-frontend.vercel.app
+
+const allowedOrigins = [
+  "http://localhost:5173", // Vite dev
+  "http://localhost:3000", // vercel dev / CRA dev
+];
+
+if (FRONTEND_ORIGIN) {
+  allowedOrigins.push(FRONTEND_ORIGIN);
+}
 
 // ✅ CORS config (only once)
 app.use(
   cors({
-    origin: isVercel ? true : "http://localhost:3000", // your React dev port
+    origin: (origin, callback) => {
+      // allow mobile apps / curl / Postman (no origin)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      console.warn("❌ CORS blocked origin:", origin);
+      return callback(new Error("Not allowed by CORS"));
+    },
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   })
 );
 
-// ✅ JSON body parsing (only once)
+// ✅ JSON body parsing
 app.use(express.json());
 
-// ✅ global logger (optional but useful)
+// ✅ global logger
 app.use((req, res, next) => {
   console.log("📥", req.method, req.url);
   next();
@@ -46,7 +64,7 @@ app.use("/api", statsRoutes);
 app.use("/api", healthRoutes);
 app.use("/api/admin/users", adminUserRoutes);
 
-// ✅ start server locally (Vercel will NOT run this)
+// ✅ start server (Railway will set PORT)
 const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, "0.0.0.0", () => {
