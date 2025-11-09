@@ -1,6 +1,6 @@
 import jwt from "jsonwebtoken";
-import { connectDB } from "../config/db.js";
-import User from "../models/User.js";
+import { connectDB } from "../db.js";
+import User from "../../../api/models/User.js";
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev_jwt_secret_change_me";
 

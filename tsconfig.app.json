@@ -21,5 +21,11 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "tailwind.config.js", "postcss.config.js", "api"]
+  "include": [
+    "src",
+    "tailwind.config.js",
+    "postcss.config.js",
+    "server",
+    "server/config"
+  ]
 }
