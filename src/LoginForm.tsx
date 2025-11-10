@@ -1,13 +1,17 @@
 import React, { useState } from "react";
 import axios, { AxiosError } from "axios";
-import { API_BASE } from "./apiConfig";
+
 interface LoginFormProps {
   onSwitchToRegister: () => void;
   onSuccess: (username: string) => void;
 }
 
 // Better base URL: env first, then dev fallback (backend), then ""
-const API_BASE_URL = API_BASE;
+const API_BASE =
+  import.meta.env.VITE_API_BASEURL ||
+  (import.meta.env.DEV ? "http://localhost:5000" : "");
+
+axios.get(`${API_BASE}/api/games`);
 
 const LoginForm: React.FC<LoginFormProps> = ({
   onSwitchToRegister,
