@@ -3,8 +3,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 
-// 🔐 Load env vars (prefer .env.local in dev, Railway uses real env vars)
-dotenv.config({ path: ".env.local", override: true });
+dotenv.config();
 
 import { connectDB } from "./config/db.js"; // 👈 add this
 
