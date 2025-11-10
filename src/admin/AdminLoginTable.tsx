@@ -58,9 +58,13 @@ const AdminUserActivityTable: React.FC = () => {
   const [resetError, setResetError] = useState("");
   const [resetSuccess, setResetSuccess] = useState("");
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Delete dialog state
+  const [selectedUser, setSelectedUser] = useState<UserRow | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+
+  // ✅ Total users logged in within last 24 hours
+  const [totalLoggedLast24h, setTotalLoggedLast24h] = useState(0);
 
   useEffect(() => {
     fetchRecords();
@@ -107,14 +111,16 @@ const AdminUserActivityTable: React.FC = () => {
       setError(null);
       const { data } = await apiClient.get<RawActivity[]>(`${API_BASE}/all`);
 
-      // Map by user id/email to get unique users
+      // Map by user email (preferred) or id to get unique users
       const map = new Map<string, UserRow>();
 
       data.forEach((raw) => {
         const normalized = normalizeActivity(raw);
         if (!normalized) return; // skip no-username
 
-        const key = normalized.id || normalized.userEmail;
+        // ✅ This prevents same user showing multiple times:
+        // prefer email as key; fallback to id if no email
+        const key = normalized.userEmail || normalized.id;
 
         const existing = map.get(key);
         if (!existing) {
@@ -145,7 +151,17 @@ const AdminUserActivityTable: React.FC = () => {
         return bTime - aTime;
       });
 
+      // ✅ compute how many logged in within last 24 hours
+      const now = Date.now();
+      const threshold = now - 24 * 60 * 60 * 1000; // 24h in ms
+      const last24Count = rows.filter((u) => {
+        if (!u.lastLogin) return false;
+        const t = new Date(u.lastLogin).getTime();
+        return !Number.isNaN(t) && t >= threshold;
+      }).length;
+
       setUsers(rows);
+      setTotalLoggedLast24h(last24Count);
     } catch (err) {
       console.error("Failed to load user activity logs:", err);
       setError("Failed to load user activity logs.");
@@ -154,12 +170,12 @@ const AdminUserActivityTable: React.FC = () => {
     }
   };
 
-  // --- NEW: date + time formatters ---
+  // --- date + time formatters ---
   const formatDate = (iso: string | null): string => {
     if (!iso) return "—";
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return "—";
-    return d.toLocaleDateString(); // e.g. 11/8/2025
+    return d.toLocaleDateString();
   };
 
   const formatTime = (iso: string | null): string => {
@@ -169,7 +185,7 @@ const AdminUserActivityTable: React.FC = () => {
     return d.toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
-    }); // e.g. 07:15 PM
+    });
   };
 
   // ---- Edit user ----
@@ -207,26 +223,30 @@ const AdminUserActivityTable: React.FC = () => {
       closeEdit();
     } catch (err) {
       console.error("Failed to save user changes:", err);
-      setIsDeleting(false);
-      setIsDialogOpen(false);
+    } finally {
       setSavingEdit(false);
     }
   };
 
   // ---- Delete user ----
-  const handleDeleteClick = (id) => {
-    setSelectedId(id);
+  const handleDeleteClick = (user: UserRow) => {
+    setSelectedUser(user);
     setIsDialogOpen(true);
   };
-  const handleConfirmDelete = async (user: UserRow) => {
-    if (!selectedId) return;
+
+  const handleConfirmDelete = async () => {
+    if (!selectedUser) return;
     setIsDeleting(true);
 
     try {
-      await apiClient.delete(`${API_BASE}/admin/users/${user.id}`);
-      setUsers((prev) => prev.filter((u) => u.id !== user.id));
+      await apiClient.delete(`${API_BASE}/admin/users/${selectedUser.id}`);
+      setUsers((prev) => prev.filter((u) => u.id !== selectedUser.id));
     } catch (err) {
       console.error("Failed to delete user:", err);
+    } finally {
+      setIsDeleting(false);
+      setIsDialogOpen(false);
+      setSelectedUser(null);
     }
   };
 
@@ -282,13 +302,22 @@ const AdminUserActivityTable: React.FC = () => {
           <User className="h-5 w-5 text-indigo-500" />
           User Activity & Management
         </h2>
-        <button
-          onClick={fetchRecords}
-          disabled={loading}
-          className="text-xs px-3 py-1 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
-        >
-          {loading ? "Refreshing..." : "Refresh"}
-        </button>
+
+        <div className="flex items-center gap-3">
+          {/* ✅ Pill showing total logged in last 24 hours */}
+          <div className="text-xs px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">
+            Logged in last 24h:{" "}
+            <span className="font-semibold">{totalLoggedLast24h}</span>
+          </div>
+
+          <button
+            onClick={fetchRecords}
+            disabled={loading}
+            className="text-xs px-3 py-1 rounded-md bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {loading ? "Refreshing..." : "Refresh"}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -409,13 +438,23 @@ const AdminUserActivityTable: React.FC = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Delete confirm dialog */}
       <DeleteConfirmDialog
         isOpen={isDialogOpen}
-        onCancel={() => setIsDialogOpen(false)}
+        onCancel={() => {
+          setIsDialogOpen(false);
+          setSelectedUser(null);
+        }}
         onConfirm={handleConfirmDelete}
         isLoading={isDeleting}
-        message="Are you sure you want to permanently delete this user?"
+        message={
+          selectedUser
+            ? `Are you sure you want to permanently delete ${selectedUser.userName}?`
+            : "Are you sure you want to permanently delete this user?"
+        }
       />
+
       {/* Edit User Modal */}
       {editingUser && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">

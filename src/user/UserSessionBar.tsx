@@ -9,7 +9,7 @@ interface UserSessionBarProps {
 }
 
 // Backend routes (your backend provides these)
-const LOGIN_API_BASE = "/api/logins";
+const LOGIN_API_BASE = "/api";
 
 const UserSessionBar: React.FC<UserSessionBarProps> = ({
   username,

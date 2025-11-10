@@ -11,7 +11,7 @@ export const API_BASE =
   import.meta.env.VITE_API_BASE_URL || // ✅ read from .env or Vercel Env Var
   (typeof window !== "undefined" && window.location.hostname === "localhost"
     ? "http://localhost:5000" // local backend
-    : "https://coin-backend-production-3480.up.railway.app/api"); // production backend
+    : "https://coin-backend-production-3480.up.railway.app"); // production backend
 
 // ✅ Preconfigured axios instance
 export const apiClient = axios.create({

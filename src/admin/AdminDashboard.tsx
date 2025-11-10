@@ -11,7 +11,7 @@ import PaymentForm, {
 import PaymentHistory from "./PaymentHistory";
 import Sidebar, { type SidebarSection } from "./Sidebar";
 import AdminLoginTable from "./AdminLoginTable"; // 👈 NEW
-
+import UserAdminTable from "./UserAdminTable";
 
 interface Game {
   id: number;
@@ -404,6 +404,9 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
               />
               <PaymentHistory apiBase={PAY_API} />
             </div>
+          )}
+          {activeSection === "UserAdminTable" && (
+            <UserAdminTable apiBase="/api" />
           )}
 
           {/* SETTINGS TAB */}
