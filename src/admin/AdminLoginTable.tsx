@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import axios from "axios";
+import { apiClient } from "../apiConfig";
 import {
   User,
   Mail,
@@ -12,6 +12,7 @@ import {
   Save,
   Loader2,
 } from "lucide-react";
+import DeleteConfirmDialog from "../DeleteConfirmDialog";
 
 const API_BASE = "/api"; // or "http://localhost:5000/api" if no proxy
 
@@ -57,6 +58,10 @@ const AdminUserActivityTable: React.FC = () => {
   const [resetError, setResetError] = useState("");
   const [resetSuccess, setResetSuccess] = useState("");
 
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+
   useEffect(() => {
     fetchRecords();
   }, []);
@@ -100,7 +105,7 @@ const AdminUserActivityTable: React.FC = () => {
     try {
       setLoading(true);
       setError(null);
-      const { data } = await axios.get<RawActivity[]>(`${API_BASE}/all`);
+      const { data } = await apiClient.get<RawActivity[]>(`${API_BASE}/all`);
 
       // Map by user id/email to get unique users
       const map = new Map<string, UserRow>();
@@ -187,7 +192,7 @@ const AdminUserActivityTable: React.FC = () => {
 
     try {
       setSavingEdit(true);
-      await axios.put(`${API_BASE}/admin/users/${editingUser.id}`, {
+      await apiClient.put(`${API_BASE}/admin/users/${editingUser.id}`, {
         name: editName.trim(),
         email: editEmail.trim(),
       });
@@ -202,24 +207,26 @@ const AdminUserActivityTable: React.FC = () => {
       closeEdit();
     } catch (err) {
       console.error("Failed to save user changes:", err);
-      alert("Failed to save user changes.");
+      setIsDeleting(false);
+      setIsDialogOpen(false);
       setSavingEdit(false);
     }
   };
 
   // ---- Delete user ----
-  const deleteUser = async (user: UserRow) => {
-    if (
-      !window.confirm(`Delete user "${user.userName}"? This cannot be undone.`)
-    )
-      return;
+  const handleDeleteClick = (id) => {
+    setSelectedId(id);
+    setIsDialogOpen(true);
+  };
+  const handleConfirmDelete = async (user: UserRow) => {
+    if (!selectedId) return;
+    setIsDeleting(true);
 
     try {
-      await axios.delete(`${API_BASE}/admin/users/${user.id}`);
+      await apiClient.delete(`${API_BASE}/admin/users/${user.id}`);
       setUsers((prev) => prev.filter((u) => u.id !== user.id));
     } catch (err) {
       console.error("Failed to delete user:", err);
-      alert("Failed to delete user.");
     }
   };
 
@@ -250,9 +257,12 @@ const AdminUserActivityTable: React.FC = () => {
       setResetError("");
       setResetSuccess("");
 
-      await axios.post(`${API_BASE}/admin/users/${pwUser.id}/reset-password`, {
-        newPassword: newPassword.trim(),
-      });
+      await apiClient.post(
+        `${API_BASE}/admin/users/${pwUser.id}/reset-password`,
+        {
+          newPassword: newPassword.trim(),
+        }
+      );
 
       setResetSuccess("Password reset successfully.");
       setNewPassword("");
@@ -385,7 +395,7 @@ const AdminUserActivityTable: React.FC = () => {
                         Reset PW
                       </button>
                       <button
-                        onClick={() => deleteUser(u)}
+                        onClick={() => handleDeleteClick(u)}
                         className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-red-500 text-white hover:bg-red-600"
                       >
                         <Trash2 className="h-3 w-3" />
@@ -399,7 +409,13 @@ const AdminUserActivityTable: React.FC = () => {
           </tbody>
         </table>
       </div>
-
+      <DeleteConfirmDialog
+        isOpen={isDialogOpen}
+        onCancel={() => setIsDialogOpen(false)}
+        onConfirm={handleConfirmDelete}
+        isLoading={isDeleting}
+        message="Are you sure you want to permanently delete this user?"
+      />
       {/* Edit User Modal */}
       {editingUser && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">

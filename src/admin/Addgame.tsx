@@ -2,11 +2,10 @@ import React, { type FC, useState } from "react";
 import { apiClient } from "../apiConfig";
 
 interface AddGameFormProps {
-  apiUrl: string;
   onGameAdded: () => void; // Callback to refresh the game list
 }
 
-const AddGameForm: FC<AddGameFormProps> = ({ apiUrl, onGameAdded }) => {
+const AddGameForm: FC<AddGameFormProps> = ({ onGameAdded }) => {
   const [name, setName] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -14,7 +13,7 @@ const AddGameForm: FC<AddGameFormProps> = ({ apiUrl, onGameAdded }) => {
     if (!name.trim()) return;
 
     try {
-      await apiClient.post(apiUrl, {
+      await apiClient.post("/api/games", {
         name: name.trim(),
         coinsSpent: 0,
         coinsEarned: 0,

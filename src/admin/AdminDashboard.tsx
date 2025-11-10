@@ -1,8 +1,7 @@
 // src/AdminDashboard.tsx
 import { useEffect, useState } from "react";
 import type { FC } from "react";
-import axios from "axios";
-
+import { apiClient } from "../apiConfig";
 import GameRow, { GameHeaderRow } from "./Gamerow";
 import AddGameForm from "./Addgame";
 import PaymentForm, {
@@ -12,6 +11,7 @@ import PaymentForm, {
 import PaymentHistory from "./PaymentHistory";
 import Sidebar, { type SidebarSection } from "./Sidebar";
 import AdminLoginTable from "./AdminLoginTable"; // 👈 NEW
+
 
 interface Game {
   id: number;
@@ -32,7 +32,7 @@ const GAMES_API = "/api/games";
 const PAY_API = "/api"; // /api/totals, /api/payments/*, /api/reset
 const LOGINS_API = "/api/logins";
 const COIN_VALUE = 0.15;
-console. log("dsfsd", GAMES_API);
+
 const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
   const [games, setGames] = useState<Game[]>([]);
   const [editingGameId, setEditingGameId] = useState<number | null>(null);
@@ -59,7 +59,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
 
   const fetchGames = async () => {
     try {
-      const { data } = await axios.get(GAMES_API);
+      const { data } = await apiClient.get(GAMES_API);
 
       if (!Array.isArray(data)) {
         console.error("❌ Expected an array of games, got:", data);
@@ -76,7 +76,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
 
   const fetchTotals = async () => {
     try {
-      const { data } = await axios.get(`${PAY_API}/totals`);
+      const { data } = await apiClient.get(`${PAY_API}/totals`);
       setPaymentTotals({
         cashapp: Number(data.cashapp) || 0,
         paypal: Number(data.paypal) || 0,
@@ -89,7 +89,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
 
   const fetchSignins = async () => {
     try {
-      const { data } = await axios.get(
+      const { data } = await apiClient.get(
         `${LOGINS_API}?username=${encodeURIComponent(username)}`
       );
       if (Array.isArray(data)) {
@@ -166,7 +166,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
     );
 
     if (updatedTotals) {
-      axios
+      apiClient
         .put(`${GAMES_API}/${id}`, updatedTotals)
         .catch((err) => console.error("Failed to persist game update:", err));
     }
@@ -174,7 +174,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
 
   const handleDelete = async (id: number) => {
     try {
-      await axios.delete(`${GAMES_API}/${id}`);
+      await apiClient.delete(`${GAMES_API}/${id}`);
       await fetchGames();
     } catch (error) {
       console.error("Failed to delete game:", error);
@@ -191,7 +191,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
 
     if (txType === "cashout") {
       // cash OUT endpoint
-      const { data } = await axios.post(`${PAY_API}/payments/cashout`, {
+      const { data } = await apiClient.post(`${PAY_API}/payments/cashout`, {
         ...rest,
         playerName,
         date,
@@ -199,7 +199,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
       setPaymentTotals(data.totals);
     } else {
       // cash IN endpoint
-      const { data } = await axios.post(`${PAY_API}/payments/cashin`, {
+      const { data } = await apiClient.post(`${PAY_API}/payments/cashin`, {
         ...rest,
         note,
         date,
@@ -209,7 +209,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
   };
 
   const onReset: PaymentFormProps["onReset"] = async () => {
-    const { data } = await axios.post(`${PAY_API}/reset`);
+    const { data } = await apiClient.post(`${PAY_API}/reset`);
     setPaymentTotals(data.totals);
     return data.totals;
   };
@@ -224,6 +224,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
     <div className="min-h-screen bg-gray-50 flex font-sans">
       {/* LEFT: Sidebar */}
       <Sidebar
+        mode="admin"
         active={activeSection}
         onChange={setActiveSection}
         onLogout={onLogout}
@@ -237,7 +238,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">
             {activeSection === "overview" && "Admin Overview"}
             {activeSection === "games" && "Games"}
-            {activeSection === "payments" && "Payments"}
+
             {activeSection === "settings" && "Settings"}
           </h1>
         </header>
@@ -342,7 +343,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
 
               {/* Payments + games */}
               <div className="mb-10 gap-6 mt-6">
-                <AddGameForm apiUrl={GAMES_API} onGameAdded={fetchGames} />
+                <AddGameForm onGameAdded={fetchGames} />
               </div>
 
               <div className="mt-8 overflow-hidden rounded-lg border border-gray-200 shadow-sm">
@@ -369,7 +370,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
           {activeSection === "games" && (
             <>
               <div className="mb-6">
-                <AddGameForm apiUrl={GAMES_API} onGameAdded={fetchGames} />
+                <AddGameForm onGameAdded={fetchGames} />
               </div>
 
               <div className="mt-4 overflow-hidden rounded-lg border border-gray-200 shadow-sm">

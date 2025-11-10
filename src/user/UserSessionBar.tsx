@@ -1,20 +1,21 @@
+// src/UserSessionBar.tsx
 import React, { useEffect, useState } from "react";
 import { LogIn, LogOut, Clock } from "lucide-react";
-import { apiClient } from "../apiConfig"; // ✅ use shared API client
+import { apiClient } from "../apiConfig"; // ✅ shared axios client
 
 interface UserSessionBarProps {
   username: string;
   onLogout: () => void;
 }
 
-// All login-related endpoints are under /api/logins/*
+// Backend routes (your backend provides these)
 const LOGIN_API_BASE = "/api/logins";
 
 const UserSessionBar: React.FC<UserSessionBarProps> = ({
   username,
   onLogout,
 }) => {
-  const [now, setNow] = useState<Date>(new Date());
+  const [now, setNow] = useState(new Date());
   const [signInDateTime, setSignInDateTime] = useState<Date | null>(null);
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -26,7 +27,7 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
     return () => clearInterval(id);
   }, []);
 
-  // 📦 Load existing session (if any)
+  // 📦 Load saved session
   useEffect(() => {
     const saved = localStorage.getItem("userSession");
     if (saved) {
@@ -73,23 +74,20 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
       })
     : null;
 
-  // 🚀 Toggle sign in / out
+  // 🚀 Handle sign-in/sign-out toggle
   const handleToggle = async () => {
     try {
       setLoading(true);
 
       if (isSignedIn) {
         // 🔴 SIGN OUT
-        const signOutAt = new Date().toISOString();
-
         if (sessionId) {
           await apiClient.post(`${LOGIN_API_BASE}/end`, {
             sessionId,
-            signOutAt,
+            signOutAt: new Date().toISOString(),
           });
         }
 
-        // Clear everything
         setIsSignedIn(false);
         setSignInDateTime(null);
         setSessionId(null);
@@ -104,20 +102,19 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
           signInAt,
         });
 
-        const sessionData = {
-          id: data.id,
-          signInAt: data.signInAt,
-          user: username,
-        };
-        localStorage.setItem("userSession", JSON.stringify(sessionData));
+        // Expected backend response:
+        // { id: "...", signInAt: "..." }
+        const id = data.id;
+        const sessionData = { id, signInAt, user: username };
 
-        setSessionId(data.id);
+        localStorage.setItem("userSession", JSON.stringify(sessionData));
+        setSessionId(id);
         setIsSignedIn(true);
-        setSignInDateTime(new Date(data.signInAt));
+        setSignInDateTime(new Date(signInAt));
       }
     } catch (err) {
-      console.error("Failed to toggle session", err);
-      alert("Failed to update session. Check API / console.");
+      console.error("Failed to toggle session:", err);
+      alert("Failed to update session. Check console or backend.");
     } finally {
       setLoading(false);
     }
@@ -126,17 +123,15 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
   return (
     <div className="w-full bg-gradient-to-r from-white via-slate-50 to-slate-100 border-b border-slate-200 shadow-sm">
       <div className="mx-auto px-4 sm:px-6 py-3 flex items-center gap-2">
-        {/* LEFT: Current time */}
+        {/* LEFT: Clock */}
         <div className="flex flex-col">
           <span className="text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-400">
             Current Time
           </span>
-
           <div className="mt-2 inline-flex items-center rounded-2xl bg-gradient-to-r from-blue-500 via-indigo-500 to-blue-600 shadow-lg px-4 py-2">
             <div className="flex items-center justify-center w-7 h-7 rounded-full bg-white/10 mr-3">
               <Clock className="w-4 h-4 text-white" />
             </div>
-
             <div className="flex flex-col leading-tight">
               <span className="text-lg sm:text-xl font-extrabold text-white tracking-wider">
                 {formattedTime}
@@ -148,11 +143,10 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
           </div>
         </div>
 
-        {/* CENTER: user info */}
+        {/* CENTER: Info */}
         <div className="flex-1 flex justify-center">
           {isSignedIn && signInTimeStr && signInDateStr ? (
             <div className="flex flex-wrap items-center gap-2 text-[11px] sm:text-xs text-slate-600">
-              {/* green since pill */}
               <div className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold">
                 <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
                 Since{" "}
@@ -160,8 +154,6 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
                   {signInTimeStr}
                 </span>
               </div>
-
-              {/* info text */}
               <span className="text-slate-500">
                 <span className="font-semibold text-slate-700">{username}</span>{" "}
                 signed in on {signInDateStr}
@@ -174,7 +166,7 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
           )}
         </div>
 
-        {/* RIGHT: Sign In / Sign Out button */}
+        {/* RIGHT: Button */}
         <div className="flex justify-end">
           <button
             onClick={handleToggle}
