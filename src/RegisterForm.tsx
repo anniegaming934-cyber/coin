@@ -1,11 +1,6 @@
 import React, { useState } from "react";
 import axios, { AxiosError } from "axios";
-
-const API_BASE =
-  import.meta.env.VITE_API_BASEURL ||
-  (import.meta.env.DEV ? "http://localhost:5000" : "");
-
-axios.get(`${API_BASE}/api/games`);
+import { API_BASE } from "./apiConfig";
 
 interface RegisterFormProps {
   onSwitchToLogin: () => void;

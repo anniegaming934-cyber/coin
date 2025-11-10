@@ -12,6 +12,7 @@ const App: FC = () => {
   const [username, setUsername] = useState<string>("");
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [role, setRole] = useState<"user" | "admin">("user");
+  console.log("🧩 VITE_API_BASE_URL =", import.meta.env.VITE_API_BASE_URL);
 
   // ---------------------------
   // 🔐 Check token + role on first load
