@@ -1,6 +1,5 @@
 import React, { useState } from "react";
-import axios, { AxiosError } from "axios";
-import { API_BASE } from "./apiConfig";
+import { API_BASE, apiClient } from "./apiConfig";
 interface LoginFormProps {
   onSwitchToRegister: () => void;
   onSuccess: (username: string) => void;
@@ -26,7 +25,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
     setError("");
 
     try {
-      const { data } = await axios.post(
+      const { data } = await apiClient.post(
         `${API_BASE_URL}/api/auth/login`,
         { email, password },
         { headers: { "Content-Type": "application/json" } }
