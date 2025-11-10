@@ -80,7 +80,6 @@ const LoginForm: React.FC<LoginFormProps> = ({
 
   return (
     <>
-      {/* FORM */}
       <form onSubmit={handleSubmit} className="space-y-4 relative">
         <h2 className="text-xl font-bold text-slate-800 mb-4">
           Welcome Back 👋
