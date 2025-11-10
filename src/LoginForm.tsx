@@ -1,12 +1,9 @@
 import React, { useState } from "react";
-import { API_BASE, apiClient } from "./apiConfig";
+import { apiClient } from "./apiConfig";
 interface LoginFormProps {
   onSwitchToRegister: () => void;
   onSuccess: (username: string) => void;
 }
-
-// Better base URL: env first, then dev fallback (backend), then ""
-const API_BASE_URL = API_BASE;
 
 const LoginForm: React.FC<LoginFormProps> = ({
   onSwitchToRegister,
@@ -26,7 +23,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
 
     try {
       const { data } = await apiClient.post(
-        `${API_BASE_URL}/api/auth/login`,
+        "/api/auth/login",
         { email, password },
         { headers: { "Content-Type": "application/json" } }
       );

@@ -1,7 +1,8 @@
 // src/user/UserResultTable.tsx
 import React, { useEffect, useState } from "react";
-import axios from "axios";
+
 import type { Game } from "./Gamerow";
+import { apiClient } from "../apiConfig";
 
 const GAMES_API = "/api/games";
 const TOTALS_API = "/api/totals";
@@ -46,9 +47,9 @@ const UserResultTable: React.FC<UserResultTableProps> = ({ username }) => {
       setLoading(true);
 
       const [gamesRes, totalsRes, loginsRes] = await Promise.all([
-        axios.get(GAMES_API),
-        axios.get(TOTALS_API),
-        axios.get<LoginHistoryItem[]>(
+        apiClient.get(GAMES_API),
+        apiClient.get(TOTALS_API),
+        apiClient.get<LoginHistoryItem[]>(
           `${LOGINS_API}?username=${encodeURIComponent(username)}`
         ),
       ]);

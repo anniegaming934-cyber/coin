@@ -1,5 +1,5 @@
 import React, { FC, useEffect, useState } from "react";
-import axios from "axios";
+import { apiClient } from "../apiConfig";
 import {
   Pencil,
   Save,
@@ -36,7 +36,10 @@ const fmtDateTime = (iso?: string | null) => {
 };
 
 const fmtAmount = (n: number) =>
-  n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  n.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
 const UserAdminTable: FC<UserAdminTableProps> = ({ apiBase = "/api" }) => {
   const [users, setUsers] = useState<UserSummary[]>([]);
@@ -65,7 +68,7 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ apiBase = "/api" }) => {
     try {
       setLoading(true);
       setError("");
-      const { data } = await axios.get<UserSummary[]>(USERS_URL);
+      const { data } = await apiClient.get<UserSummary[]>(USERS_URL);
       setUsers(data);
     } catch (err: any) {
       console.error(err);
@@ -99,10 +102,7 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ apiBase = "/api" }) => {
     });
   };
 
-  const handleEditChange = (
-    field: keyof typeof editForm,
-    value: string
-  ) => {
+  const handleEditChange = (field: keyof typeof editForm, value: string) => {
     // only numbers allowed
     if (/^-?\d*\.?\d*$/.test(value)) {
       setEditForm((prev) => ({ ...prev, [field]: value }));
@@ -118,7 +118,7 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ apiBase = "/api" }) => {
         totalRedeem: Number(editForm.totalRedeem) || 0,
       };
 
-      await axios.put(`${USERS_URL}/${userId}`, payload);
+      await apiClient.put(`${USERS_URL}/${userId}`, payload);
 
       // Update local state
       setUsers((prev) =>
@@ -158,7 +158,7 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ apiBase = "/api" }) => {
       setResetError("");
       setResetSuccess("");
 
-      await axios.post(`${USERS_URL}/${resetUser._id}/reset-password`, {
+      await apiClient.post(`${USERS_URL}/${resetUser._id}/reset-password`, {
         newPassword: newPassword.trim(),
       });
 
@@ -209,9 +209,15 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ apiBase = "/api" }) => {
               <th className="px-4 py-2 font-medium">Username</th>
               <th className="px-4 py-2 font-medium">Sign-in</th>
               <th className="px-4 py-2 font-medium">Sign-out</th>
-              <th className="px-4 py-2 font-medium text-right">Total Payments</th>
-              <th className="px-4 py-2 font-medium text-right">Total Freeplay</th>
-              <th className="px-4 py-2 font-medium text-right">Total Deposit</th>
+              <th className="px-4 py-2 font-medium text-right">
+                Total Payments
+              </th>
+              <th className="px-4 py-2 font-medium text-right">
+                Total Freeplay
+              </th>
+              <th className="px-4 py-2 font-medium text-right">
+                Total Deposit
+              </th>
               <th className="px-4 py-2 font-medium text-right">Total Redeem</th>
               <th className="px-4 py-2 font-medium text-right">Actions</th>
             </tr>

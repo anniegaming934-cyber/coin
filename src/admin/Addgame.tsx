@@ -1,5 +1,5 @@
 import React, { type FC, useState } from "react";
-import axios from "axios";
+import { apiClient } from "../apiConfig";
 
 interface AddGameFormProps {
   apiUrl: string;
@@ -14,7 +14,7 @@ const AddGameForm: FC<AddGameFormProps> = ({ apiUrl, onGameAdded }) => {
     if (!name.trim()) return;
 
     try {
-      await axios.post(apiUrl, {
+      await apiClient.post(apiUrl, {
         name: name.trim(),
         coinsSpent: 0,
         coinsEarned: 0,

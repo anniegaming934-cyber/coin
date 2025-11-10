@@ -19,11 +19,17 @@ type SessionValues = {
   deposit: number;
 };
 
-const UserTable: React.FC = () => {
+type UserTableMode = "admin" | "user";
+
+interface UserTableProps {
+  mode?: UserTableMode; // default "user"
+}
+
+const UserTable: React.FC<UserTableProps> = ({ mode = "user" }) => {
   const [games, setGames] = useState<Game[]>([]);
   const [editingGame, setEditingGame] = useState<Game | null>(null);
 
-  // edit fields
+  // edit fields (admin only)
   const [freeplayChange, setFreeplayChange] = useState("");
   const [redeemChange, setRedeemChange] = useState("");
   const [depositChange, setDepositChange] = useState("");
@@ -47,14 +53,16 @@ const UserTable: React.FC = () => {
     fetchGames();
   }, []);
 
-  // reset UI-only values every 10 minutes
+  // reset UI-only values every 10 minutes (admin mode only)
   useEffect(() => {
+    if (mode !== "admin") return;
     const interval = setInterval(() => setSessionValues({}), 10 * 60 * 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [mode]);
 
-  // handle save
+  // handle save (admin only)
   const handleSave = () => {
+    if (mode !== "admin") return;
     if (!editingGame || isSaving) return;
 
     const freeplay = Number(freeplayChange) || 0;
@@ -104,7 +112,7 @@ const UserTable: React.FC = () => {
 
     // Send to backend
     setIsSaving(true);
-    axios
+    apiClient
       .post(`${GAMES_API}/${gameId}/add-moves`, {
         freeplayDelta: freeplay,
         redeemDelta: redeem,
@@ -117,6 +125,62 @@ const UserTable: React.FC = () => {
   const formatCurrency = (n: number) =>
     n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 
+  // =============== admin VIEW (READ-ONLY) ===============
+  if (mode === "admin") {
+    return (
+      <div className="overflow-x-auto relative">
+        <table className="min-w-full border-collapse bg-white rounded-lg shadow-md">
+          <thead>
+            <tr className="bg-slate-100 text-slate-600 text-xs uppercase font-semibold">
+              <th className="px-4 py-3 text-left">Game</th>
+              <th className="px-4 py-3 text-center">Total Coins</th>
+              <th className="px-4 py-3 text-center">Value</th>
+            </tr>
+          </thead>
+          <tbody className="text-sm text-gray-700">
+            {games.map((game) => {
+              const earned = safeNumber(game.coinsEarned); // freeplay (-)
+              const spent = safeNumber(game.coinsSpent); // redeem (+)
+              const recharged = safeNumber(game.coinsRecharged); // deposit (-)
+
+              const totalCoins = earned + recharged - spent;
+              const pnl = totalCoins * COIN_VALUE;
+
+              return (
+                <tr key={game.id} className="border-b hover:bg-gray-50">
+                  <td className="px-4 py-3 font-medium text-gray-800">
+                    {game.name}
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span
+                      className={`font-semibold ${
+                        totalCoins >= 0 ? "text-emerald-600" : "text-red-600"
+                      }`}
+                    >
+                      {totalCoins.toLocaleString()}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-center text-slate-600">
+                    {formatCurrency(pnl)}
+                  </td>
+                </tr>
+              );
+            })}
+
+            {games.length === 0 && (
+              <tr>
+                <td colSpan={3} className="text-center text-gray-500 py-6">
+                  No games available.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
+
+  // =============== ADMIN VIEW (EDITABLE) ===============
   return (
     <div className="overflow-x-auto relative">
       <table className="min-w-full border-collapse bg-white rounded-lg shadow-md">
@@ -137,13 +201,8 @@ const UserTable: React.FC = () => {
             const spent = safeNumber(game.coinsSpent); // redeem
             const recharged = safeNumber(game.coinsRecharged); // deposit
 
-            // ✅ Correct formula for your logic:
             // freeplay subtract, deposit subtract, redeem add
             const totalCoins = earned + recharged - spent;
-
-            {
-              console.log("sds", totalCoins);
-            }
             const pnl = totalCoins * COIN_VALUE;
 
             const session = sessionValues[game.id] || {
@@ -217,7 +276,7 @@ const UserTable: React.FC = () => {
         </tbody>
       </table>
 
-      {/* 🧩 EDIT POPUP */}
+      {/* 🧩 EDIT POPUP – ADMIN ONLY */}
       {editingGame && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-sm relative">

@@ -1,5 +1,5 @@
 // src/Sidebar.tsx
-import type { FC } from "react";
+import type { FC, ElementType } from "react";
 import {
   LayoutDashboard,
   Gamepad2,
@@ -20,11 +20,14 @@ export type SidebarSection =
   | "paymentsHistory"
   | "settings";
 
+type SidebarMode = "admin" | "user";
+
 interface SidebarProps {
   active: SidebarSection;
   onChange: (section: SidebarSection) => void;
   onLogout?: () => void;
   username?: string;
+  mode: SidebarMode; // 👈 NEW: "admin" or "user"
 }
 
 const Sidebar: FC<SidebarProps> = ({
@@ -32,24 +35,31 @@ const Sidebar: FC<SidebarProps> = ({
   onChange,
   onLogout,
   username,
+  mode,
 }) => {
-  const links: {
-    id: SidebarSection;
-    label: string;
-    icon: React.ElementType;
-  }[] = [
-    { id: "overview", label: "Overview", icon: LayoutDashboard },
-    { id: "games", label: "Games", icon: Gamepad2 },
-    { id: "charts", label: "Charts", icon: BarChart2 },
-    { id: "UserAdminTable", label: "UserAdmin Table", icon: BarChart2 },
-    { id: "userHistroy", label: "User Histroy", icon: BarChart2 },
-    {
-      id: "paymentsHistory",
-      label: "Payment History",
-      icon: Wallet,
-    },
-    { id: "settings", label: "Settings", icon: Settings },
-  ];
+  // 👇 Links for normal user
+  const userLinks: { id: SidebarSection; label: string; icon: ElementType }[] =
+    [
+      { id: "overview", label: "Overview", icon: LayoutDashboard },
+      { id: "games", label: "Games", icon: Gamepad2 },
+      { id: "charts", label: "Charts", icon: BarChart2 },
+      { id: "paymentsHistory", label: "Payment History", icon: Wallet },
+      { id: "settings", label: "Settings", icon: Settings },
+    ];
+
+  // 👇 Links for admin
+  const adminLinks: { id: SidebarSection; label: string; icon: ElementType }[] =
+    [
+      { id: "overview", label: "Overview", icon: LayoutDashboard },
+      { id: "games", label: "Games", icon: Gamepad2 },
+      { id: "charts", label: "Charts", icon: BarChart2 },
+      { id: "UserAdminTable", label: "UserAdmin Table", icon: BarChart2 },
+      { id: "userHistroy", label: "User History", icon: BarChart2 },
+
+      { id: "settings", label: "Settings", icon: Settings },
+    ];
+
+  const links = mode === "admin" ? adminLinks : userLinks;
 
   return (
     <aside className="h-screen w-64 bg-slate-900 text-slate-100 flex flex-col shadow-xl">
@@ -60,7 +70,9 @@ const Sidebar: FC<SidebarProps> = ({
         </div>
         <div>
           <h1 className="text-lg font-semibold leading-tight">Coin Tracker</h1>
-          <p className="text-xs text-slate-400">Game coins dashboard</p>
+          <p className="text-xs text-slate-400">
+            {mode === "admin" ? "Admin dashboard" : "Game coins dashboard"}
+          </p>
         </div>
       </div>
 
@@ -72,7 +84,9 @@ const Sidebar: FC<SidebarProps> = ({
           </div>
           <div>
             <p className="text-sm font-medium text-slate-100">{username}</p>
-            <p className="text-xs text-slate-400">Logged in</p>
+            <p className="text-xs text-slate-400">
+              {mode === "admin" ? "Admin logged in" : "Logged in"}
+            </p>
           </div>
         </div>
       )}
@@ -112,7 +126,7 @@ const Sidebar: FC<SidebarProps> = ({
           </button>
         )}
         <p className="text-[11px] text-slate-500 text-center">
-          v1.0 • Local/Vercel
+          v1.0 • {mode === "admin" ? "Admin" : "User"} • shopie/smiely
         </p>
       </div>
     </aside>

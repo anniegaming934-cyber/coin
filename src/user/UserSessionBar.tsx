@@ -1,18 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { LogIn, LogOut, Clock } from "lucide-react";
-import axios from "axios";
+import { apiClient } from "../apiConfig"; // ✅ use shared API client
 
 interface UserSessionBarProps {
   username: string;
   onLogout: () => void;
 }
 
-// 🔧 Auto-detect API base
-const API_BASE: string =
-  (import.meta as any).env?.VITE_API_BASE ??
-  (typeof window !== "undefined" && window.location.hostname === "localhost"
-    ? "http://localhost:3000/api"
-    : "/api");
+// All login-related endpoints are under /api/logins/*
+const LOGIN_API_BASE = "/api/logins";
 
 const UserSessionBar: React.FC<UserSessionBarProps> = ({
   username,
@@ -87,7 +83,7 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
         const signOutAt = new Date().toISOString();
 
         if (sessionId) {
-          await axios.post(`${API_BASE}/logins/end`, {
+          await apiClient.post(`${LOGIN_API_BASE}/end`, {
             sessionId,
             signOutAt,
           });
@@ -103,7 +99,7 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
         // 🟢 SIGN IN
         const signInAt = new Date().toISOString();
 
-        const { data } = await axios.post(`${API_BASE}/logins/start`, {
+        const { data } = await apiClient.post(`${LOGIN_API_BASE}/start`, {
           username,
           signInAt,
         });

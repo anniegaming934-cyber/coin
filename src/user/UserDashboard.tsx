@@ -116,6 +116,7 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
     <div className="min-h-screen bg-gray-50 flex font-sans">
       {/* LEFT: Sidebar */}
       <Sidebar
+        mode="user"
         active={activeSection}
         onChange={setActiveSection}
         onLogout={onLogout}
@@ -148,14 +149,14 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
                   onReset={onReset}
                 />
               </div>
-              <UserTable />
+              <UserTable mode="user" />
             </>
           )}
 
           {/* GAMES TAB – only games table */}
           {activeSection === "games" && (
             <div className="mt-4">
-              <UserTable />
+              <UserTable mode="user" />
             </div>
           )}
 

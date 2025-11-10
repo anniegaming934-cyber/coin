@@ -1,14 +1,32 @@
-// src/apiconfig.ts
+// src/apiConfig.ts
 import axios from "axios";
 
+/**
+ * ✅ Smart base URL logic
+ * - In development: uses localhost backend
+ * - In production (Vercel): uses your Railway backend URL (via env)
+ * - Supports either with or without /api prefix
+ */
 export const API_BASE =
-  import.meta.env.VITE_API_BASEURL ||
+  import.meta.env.VITE_API_BASE_URL || // ✅ read from .env or Vercel Env Var
   (import.meta.env.DEV
-    ? "http://localhost:5000"
-    : "https://coin-backend-production-3480.up.railway.app");
+    ? "http://localhost:5000" // local backend
+    : "https://coin-backend-production-3480.up.railway.app/api"); // production backend
 
-// Optional: axios instance with baseURL set
+// ✅ Preconfigured axios instance
 export const apiClient = axios.create({
-  baseURL: API_BASE,
-  withCredentials: false, // or true if you need cookies
+  baseURL: API_BASE, // automatically includes /api
+  withCredentials: false, // set true only if backend sets cookies
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+// Optional helper: add token automatically if available
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem("token");
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
 });
