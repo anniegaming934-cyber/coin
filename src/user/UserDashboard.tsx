@@ -1,6 +1,6 @@
 // src/UserDashboard.tsx
 import { useEffect, useState, type FC } from "react";
-import { apiClient } from "../apiConfig"; // make sure this is correct
+import { apiClient } from "../apiConfig"; // <- our axios instance
 
 import Sidebar, { type SidebarSection } from "../admin/Sidebar";
 import UserSessionBar from "./UserSessionBar";
@@ -17,8 +17,8 @@ import type { Game } from "../admin/Gamerow";
 // -----------------------------
 // Constants
 // -----------------------------
-const GAMES_API = "/api/games"; // relative path, but used with apiClient
-const PAY_API = "/api"; // base path for payments endpoints
+const GAMES_API = "/api/games";
+const PAY_API = "/api"; // /api/payments/cashin, /api/payments/cashout, /api/reset
 const COIN_VALUE = 0.15;
 
 interface UserDashboardProps {
@@ -46,7 +46,7 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
 
   const fetchGames = async () => {
     try {
-      const { data } = await apiClient.get(GAMES_API); // ✅ use apiClient
+      const { data } = await apiClient.get(GAMES_API);
       if (!Array.isArray(data)) {
         console.error("❌ Expected an array of games, got:", data);
         setGames([]);
@@ -60,7 +60,7 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
   };
 
   // -----------------------------
-  // Payment handlers
+  // Payment handlers (match backend)
   // -----------------------------
   const onRecharge = async ({
     amount,
@@ -75,21 +75,36 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
     note?: string;
     playerName?: string;
     date?: string;
-    txType: TxType;
+    txType: TxType; // "cashin" | "cashout"
   }) => {
-    const { data } = await apiClient.post(`${PAY_API}/payments`, {
+    // Decide endpoint based on txType
+    const endpoint =
+      txType === "cashout"
+        ? `${PAY_API}/payments/cashout`
+        : `${PAY_API}/payments/cashin`;
+
+    // Backend expects:
+    // - cashin: { amount, method, note?, date? }
+    // - cashout: { amount, method, playerName, date? }
+    const payload: any = {
       amount,
       method,
-      note,
-      playerName,
       date,
-      txType,
-    }); // ✅ apiClient
+    };
+
+    if (txType === "cashout") {
+      payload.playerName = playerName;
+    } else {
+      payload.note = note;
+    }
+
+    const { data } = await apiClient.post(endpoint, payload);
+    // backend returns { ok, payment, totals }
     setPaymentTotals(data.totals);
   };
 
   const onReset = async () => {
-    const { data } = await apiClient.post(`${PAY_API}/reset`); // ✅ apiClient
+    const { data } = await apiClient.post(`${PAY_API}/reset`);
     setPaymentTotals(data.totals);
     return data.totals;
   };
@@ -122,6 +137,7 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
         </header>
 
         <main className="flex-1 overflow-y-auto p-4 sm:p-8">
+          {/* OVERVIEW TAB – payments + table */}
           {activeSection === "overview" && (
             <>
               <div className="grid grid-cols-1 gap-6 mb-8">
@@ -136,25 +152,29 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
             </>
           )}
 
+          {/* GAMES TAB – only games table */}
           {activeSection === "games" && (
             <div className="mt-4">
               <UserTable />
             </div>
           )}
 
+          {/* CHARTS TAB */}
           {activeSection === "charts" && (
             <div className="mt-4">
               <UserCharts games={games} coinValue={COIN_VALUE} />
             </div>
           )}
 
+          {/* PAYMENTS HISTORY TAB */}
           {activeSection === "paymentsHistory" && (
             <div className="mt-4">
-              <PaymentHistory apiBase={PAY_API} />{" "}
-              {/* this component should also use apiClient inside */}
+              {/* PaymentHistory likely does its own GET /api/payments etc. */}
+              <PaymentHistory apiBase={PAY_API} />
             </div>
           )}
 
+          {/* SETTINGS */}
           {activeSection === "settings" && (
             <div className="text-sm text-gray-600 mt-8">
               <p>More sections coming soon (settings, reports, etc.).</p>

@@ -1,6 +1,6 @@
 // src/UserTable.tsx
 import React, { useEffect, useState } from "react";
-import axios from "axios";
+import { apiClient } from "../apiConfig";
 import { Pencil, X } from "lucide-react";
 import type { Game } from "../admin/Gamerow";
 
@@ -36,7 +36,7 @@ const UserTable: React.FC = () => {
   // fetch all games
   const fetchGames = async () => {
     try {
-      const { data } = await axios.get(GAMES_API);
+      const { data } = await apiClient.get(GAMES_API);
       if (Array.isArray(data)) setGames(data);
     } catch (err) {
       console.error("Failed to fetch games:", err);

@@ -1,6 +1,6 @@
 // src/PaymentHistory.tsx
 import React, { type FC, useEffect, useState } from "react";
-import axios from "axios";
+import { apiClient } from "../apiConfig";
 import { Loader2, Pencil, Trash2, X, Check, AlertTriangle } from "lucide-react";
 
 export type PaymentMethod = "cashapp" | "paypal" | "chime";
@@ -68,7 +68,7 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
       setLoading(true);
       setError(null);
 
-      const { data } = await axios.get<Payment[]>(`${apiBase}/payments`, {
+      const { data } = await apiClient.get<Payment[]>(`${apiBase}/payments`, {
         params: { date },
       });
 
@@ -108,7 +108,7 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
     setEditNote("");
     setEditTxType("cashin");
   };
-  
+
   const saveEdit = async (id: string) => {
     const amt = Number(editAmount);
     if (!Number.isFinite(amt) || amt <= 0) {
