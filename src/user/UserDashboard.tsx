@@ -1,7 +1,6 @@
 // src/UserDashboard.tsx
-import { useEffect, useState } from "react";
-import type { FC } from "react";
-import axios from "axios";
+import { useEffect, useState, type FC } from "react";
+import { apiClient } from "../apiConfig"; // make sure this is correct
 
 import Sidebar, { type SidebarSection } from "../admin/Sidebar";
 import UserSessionBar from "./UserSessionBar";
@@ -18,8 +17,8 @@ import type { Game } from "../admin/Gamerow";
 // -----------------------------
 // Constants
 // -----------------------------
-const GAMES_API = "/api/games";
-const PAY_API = "/api"; // /api/totals, /api/payments, /api/reset
+const GAMES_API = "/api/games"; // relative path, but used with apiClient
+const PAY_API = "/api"; // base path for payments endpoints
 const COIN_VALUE = 0.15;
 
 interface UserDashboardProps {
@@ -47,7 +46,7 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
 
   const fetchGames = async () => {
     try {
-      const { data } = await axios.get(GAMES_API);
+      const { data } = await apiClient.get(GAMES_API); // ✅ use apiClient
       if (!Array.isArray(data)) {
         console.error("❌ Expected an array of games, got:", data);
         setGames([]);
@@ -78,19 +77,19 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
     date?: string;
     txType: TxType;
   }) => {
-    const { data } = await axios.post(`${PAY_API}/payments`, {
+    const { data } = await apiClient.post(`${PAY_API}/payments`, {
       amount,
       method,
       note,
       playerName,
       date,
       txType,
-    });
+    }); // ✅ apiClient
     setPaymentTotals(data.totals);
   };
 
   const onReset = async () => {
-    const { data } = await axios.post(`${PAY_API}/reset`);
+    const { data } = await apiClient.post(`${PAY_API}/reset`); // ✅ apiClient
     setPaymentTotals(data.totals);
     return data.totals;
   };
@@ -110,7 +109,6 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
 
       {/* RIGHT: Main area */}
       <div className="flex-1 flex flex-col">
-        {/* Top session bar */}
         <UserSessionBar username={username} onLogout={onLogout} />
 
         <header className="flex flex-wrap items-center gap-3 px-4 sm:px-8 py-4 border-b bg-white">
@@ -124,10 +122,8 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
         </header>
 
         <main className="flex-1 overflow-y-auto p-4 sm:p-8">
-          {/* OVERVIEW TAB – summary: cash in/out + table */}
           {activeSection === "overview" && (
             <>
-              {/* 💳 Payment form + quick totals */}
               <div className="grid grid-cols-1 gap-6 mb-8">
                 <PaymentForm
                   initialTotals={paymentTotals}
@@ -136,34 +132,29 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
                   onReset={onReset}
                 />
               </div>
-
-              {/* 🧾 User Table */}
               <UserTable />
             </>
           )}
 
-          {/* GAMES TAB – just table (same as overview but isolated) */}
           {activeSection === "games" && (
             <div className="mt-4">
               <UserTable />
             </div>
           )}
 
-          {/* CHARTS TAB – only charts here */}
           {activeSection === "charts" && (
             <div className="mt-4">
               <UserCharts games={games} coinValue={COIN_VALUE} />
             </div>
           )}
 
-          {/* PAYMENTS HISTORY TAB – only history list */}
           {activeSection === "paymentsHistory" && (
             <div className="mt-4">
-              <PaymentHistory apiBase={PAY_API} />
+              <PaymentHistory apiBase={PAY_API} />{" "}
+              {/* this component should also use apiClient inside */}
             </div>
           )}
 
-          {/* SETTINGS / FUTURE */}
           {activeSection === "settings" && (
             <div className="text-sm text-gray-600 mt-8">
               <p>More sections coming soon (settings, reports, etc.).</p>
