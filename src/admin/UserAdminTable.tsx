@@ -5,15 +5,15 @@ import {
   Save,
   X,
   RotateCcw,
-  KeyRound,
   Loader2,
   AlertTriangle,
+  Trash2,
 } from "lucide-react";
 
 interface UserSummary {
   _id: string;
   username: string;
-  email?: string;
+  email?: string; // still allowed from backend, but not shown
 
   lastSignInAt?: string | null;
   lastSignOutAt?: string | null;
@@ -53,14 +53,6 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ apiBase = "/api" }) => {
     totalDeposit: "",
     totalRedeem: "",
   });
-
-  // Reset password modal state
-  const [resetOpen, setResetOpen] = useState(false);
-  const [resetUser, setResetUser] = useState<UserSummary | null>(null);
-  const [newPassword, setNewPassword] = useState("");
-  const [resetLoading, setResetLoading] = useState(false);
-  const [resetError, setResetError] = useState("");
-  const [resetSuccess, setResetSuccess] = useState("");
 
   const USERS_URL = `${apiBase}/admin/users`;
 
@@ -138,37 +130,18 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ apiBase = "/api" }) => {
     }
   };
 
-  const openResetPassword = (u: UserSummary) => {
-    setResetUser(u);
-    setNewPassword("");
-    setResetError("");
-    setResetSuccess("");
-    setResetOpen(true);
-  };
-
-  const submitResetPassword = async () => {
-    if (!resetUser) return;
-    if (!newPassword.trim() || newPassword.trim().length < 6) {
-      setResetError("Password must be at least 6 characters.");
-      return;
-    }
+  const deleteUser = async (userId: string, username: string) => {
+    const ok = window.confirm(
+      `Are you sure you want to delete user "${username}"? This action cannot be undone.`
+    );
+    if (!ok) return;
 
     try {
-      setResetLoading(true);
-      setResetError("");
-      setResetSuccess("");
-
-      await apiClient.post(`${USERS_URL}/${resetUser._id}/reset-password`, {
-        newPassword: newPassword.trim(),
-      });
-
-      setResetSuccess("Password reset successfully.");
-      setNewPassword("");
+      await apiClient.delete(`${USERS_URL}/${userId}`);
+      setUsers((prev) => prev.filter((u) => u._id !== userId));
     } catch (err: any) {
       console.error(err);
-      setResetError("Failed to reset password.");
-    } finally {
-      setResetLoading(false);
+      alert("Failed to delete user.");
     }
   };
 
@@ -241,14 +214,11 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ apiBase = "/api" }) => {
                   key={u._id}
                   className="border-t last:border-b hover:bg-gray-50/60"
                 >
+                  {/* Username only */}
                   <td className="px-4 py-2">
-                    <div className="flex flex-col">
-                      <span className="font-medium">{u.username}</span>
-                      {u.email && (
-                        <span className="text-xs text-gray-500">{u.email}</span>
-                      )}
-                    </div>
+                    <span className="font-medium">{u.username}</span>
                   </td>
+
                   <td className="px-4 py-2 align-top">
                     <span className="text-xs text-gray-700">
                       {fmtDateTime(u.lastSignInAt)}
@@ -351,11 +321,11 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ apiBase = "/api" }) => {
                       )}
 
                       <button
-                        onClick={() => openResetPassword(u)}
-                        className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-amber-500 text-white hover:bg-amber-600"
+                        onClick={() => deleteUser(u._id, u.username)}
+                        className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700"
                       >
-                        <KeyRound className="w-3 h-3" />
-                        Reset PW
+                        <Trash2 className="w-3 h-3" />
+                        Delete
                       </button>
                     </div>
                   </td>
@@ -365,78 +335,6 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ apiBase = "/api" }) => {
           </tbody>
         </table>
       </div>
-
-      {/* Reset Password Modal */}
-      {resetOpen && resetUser && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold flex items-center gap-2">
-                <KeyRound className="w-4 h-4" />
-                Reset Password
-              </h3>
-              <button
-                onClick={() => setResetOpen(false)}
-                className="p-1 rounded hover:bg-gray-100"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-1 text-sm">
-              <p className="font-medium">{resetUser.username}</p>
-              {resetUser.email && (
-                <p className="text-gray-500 text-xs">{resetUser.email}</p>
-              )}
-            </div>
-
-            {resetError && (
-              <div className="flex items-center gap-2 text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-lg">
-                <AlertTriangle className="w-4 h-4" />
-                <span>{resetError}</span>
-              </div>
-            )}
-            {resetSuccess && (
-              <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-lg">
-                {resetSuccess}
-              </div>
-            )}
-
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-gray-700">
-                New Password
-              </label>
-              <input
-                type="password"
-                className="w-full border rounded px-3 py-2 text-sm"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Enter new password"
-              />
-              <p className="text-xs text-gray-500">
-                Minimum 6 characters. User will log in using this new password.
-              </p>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                onClick={() => setResetOpen(false)}
-                className="px-3 py-1.5 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-100"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={submitResetPassword}
-                disabled={resetLoading}
-                className="inline-flex items-center gap-2 px-3 py-1.5 text-xs rounded bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-60"
-              >
-                {resetLoading && <Loader2 className="w-3 h-3 animate-spin" />}
-                Reset Password
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

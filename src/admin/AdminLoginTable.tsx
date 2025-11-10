@@ -110,7 +110,7 @@ const AdminUserActivityTable: React.FC = () => {
       setLoading(true);
       setError(null);
       const { data } = await apiClient.get<RawActivity[]>(`${API_BASE}/all`);
-
+      console.log("data", data);
       // Map by user email (preferred) or id to get unique users
       const map = new Map<string, UserRow>();
 
