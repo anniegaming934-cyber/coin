@@ -19,27 +19,27 @@ type SessionValues = {
   deposit: number;
 };
 
-type UserTableMode = "admin" | "user";
-
 interface UserTableProps {
-  mode?: UserTableMode; // default "user"
+  username?: string; // will be sent to backend
 }
 
-const UserTable: React.FC<UserTableProps> = ({ mode = "user" }) => {
+const UserTable: React.FC<UserTableProps> = ({ username = "Unknown User" }) => {
   const [games, setGames] = useState<Game[]>([]);
   const [editingGame, setEditingGame] = useState<Game | null>(null);
 
-  // edit fields (admin only)
+  // per-day / per-session totals shown in table
+  const [sessionValues, setSessionValues] = useState<
+    Record<number, SessionValues>
+  >({});
+
+  // edit popup fields
   const [freeplayChange, setFreeplayChange] = useState("");
   const [redeemChange, setRedeemChange] = useState("");
   const [depositChange, setDepositChange] = useState("");
 
-  const [sessionValues, setSessionValues] = useState<
-    Record<number, SessionValues>
-  >({});
   const [isSaving, setIsSaving] = useState(false);
 
-  // fetch all games
+  // fetch all games (name + totalCoins from backend)
   const fetchGames = async () => {
     try {
       const { data } = await apiClient.get(GAMES_API);
@@ -53,23 +53,16 @@ const UserTable: React.FC<UserTableProps> = ({ mode = "user" }) => {
     fetchGames();
   }, []);
 
-  // reset UI-only values every 10 minutes (admin mode only)
-  useEffect(() => {
-    if (mode !== "admin") return;
-    const interval = setInterval(() => setSessionValues({}), 10 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, [mode]);
-
-  // handle save (admin only)
+  // handle save (edit popup)
   const handleSave = () => {
-    if (mode !== "admin") return;
     if (!editingGame || isSaving) return;
 
-    const freeplay = Number(freeplayChange) || 0;
-    const redeem = Number(redeemChange) || 0;
-    const deposit = Number(depositChange) || 0;
+    const freeplayDelta = Number(freeplayChange) || 0;
+    const redeemDelta = Number(redeemChange) || 0;
+    const depositDelta = Number(depositChange) || 0;
 
-    if (!freeplay && !redeem && !deposit) {
+    // no changes → just close
+    if (!freeplayDelta && !redeemDelta && !depositDelta) {
       setEditingGame(null);
       setFreeplayChange("");
       setRedeemChange("");
@@ -79,108 +72,92 @@ const UserTable: React.FC<UserTableProps> = ({ mode = "user" }) => {
 
     const gameId = editingGame.id;
 
-    // Update UI totals immediately
-    setGames((prev) =>
-      prev.map((g) => {
-        if (g.id !== gameId) return g;
-        return {
-          ...g,
-          coinsEarned: safeNumber(g.coinsEarned) + freeplay,
-          coinsSpent: safeNumber(g.coinsSpent) + redeem,
-          coinsRecharged: safeNumber(g.coinsRecharged) + deposit,
-        };
-      })
-    );
+    // previous totalCoins from game state
+    const prevTotal = safeNumber((editingGame as any).totalCoins);
 
-    // Update session values
-    setSessionValues((prev) => {
-      const current = prev[gameId] || { freeplay: 0, redeem: 0, deposit: 0 };
-      return {
-        ...prev,
-        [gameId]: {
-          freeplay: current.freeplay + freeplay,
-          redeem: current.redeem + redeem,
-          deposit: current.deposit + deposit,
-        },
-      };
+    // per-day/session totals BEFORE this edit
+    const prevSession = sessionValues[gameId] || {
+      freeplay: 0,
+      redeem: 0,
+      deposit: 0,
+    };
+
+    // per-day/session totals AFTER this edit
+    const newSession: SessionValues = {
+      freeplay: prevSession.freeplay + freeplayDelta,
+      redeem: prevSession.redeem + redeemDelta,
+      deposit: prevSession.deposit + depositDelta,
+    };
+
+    // 🔢 Apply your rule:
+    // freeplay & deposit subtract, redeem adds
+    const newTotal = prevTotal - freeplayDelta - depositDelta + redeemDelta;
+
+    console.log("💾 Saving game", {
+      gameId,
+      username,
+      freeplayDelta,
+      redeemDelta,
+      depositDelta,
+      prevTotal,
+      newTotal,
+      sessionBefore: prevSession,
+      sessionAfter: newSession,
+      url: `${GAMES_API}/${gameId}/add-moves`,
     });
 
+    // ✅ Update per-day/session values shown in table
+    setSessionValues((prev) => ({
+      ...prev,
+      [gameId]: newSession,
+    }));
+
+    // ✅ Update totalCoins in UI immediately
+    setGames((prev) =>
+      prev.map((g) =>
+        g.id === gameId
+          ? {
+              ...g,
+              totalCoins: newTotal,
+            }
+          : g
+      )
+    );
+
+    // close modal + reset fields
     setEditingGame(null);
     setFreeplayChange("");
     setRedeemChange("");
     setDepositChange("");
 
-    // Send to backend
+    // Send deltas + per-day totals + username to backend
     setIsSaving(true);
     apiClient
       .post(`${GAMES_API}/${gameId}/add-moves`, {
-        freeplayDelta: freeplay,
-        redeemDelta: redeem,
-        depositDelta: deposit,
+        username,
+        freeplayDelta,
+        redeemDelta,
+        depositDelta,
+        freeplayTotal: newSession.freeplay,
+        redeemTotal: newSession.redeem,
+        depositTotal: newSession.deposit,
       })
-      .catch((err) => console.error("Failed to save:", err))
+      .then((res) => {
+        console.log("✅ Save response:", res.data);
+        // optional: re-sync with DB
+        // fetchGames();
+      })
+      .catch((err) => {
+        console.error("❌ Failed to save:", err);
+        // optional: revert by refetching from backend
+        // fetchGames();
+      })
       .finally(() => setIsSaving(false));
   };
 
   const formatCurrency = (n: number) =>
     n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 
-  // =============== admin VIEW (READ-ONLY) ===============
-  if (mode === "admin") {
-    return (
-      <div className="overflow-x-auto relative">
-        <table className="min-w-full border-collapse bg-white rounded-lg shadow-md">
-          <thead>
-            <tr className="bg-slate-100 text-slate-600 text-xs uppercase font-semibold">
-              <th className="px-4 py-3 text-left">Game</th>
-              <th className="px-4 py-3 text-center">Total Coins</th>
-              <th className="px-4 py-3 text-center">Value</th>
-            </tr>
-          </thead>
-          <tbody className="text-sm text-gray-700">
-            {games.map((game) => {
-              const earned = safeNumber(game.coinsEarned); // freeplay (-)
-              const spent = safeNumber(game.coinsSpent); // redeem (+)
-              const recharged = safeNumber(game.coinsRecharged); // deposit (-)
-
-              const totalCoins = earned + recharged - spent;
-              const pnl = totalCoins * COIN_VALUE;
-
-              return (
-                <tr key={game.id} className="border-b hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium text-gray-800">
-                    {game.name}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <span
-                      className={`font-semibold ${
-                        totalCoins >= 0 ? "text-emerald-600" : "text-red-600"
-                      }`}
-                    >
-                      {totalCoins.toLocaleString()}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-center text-slate-600">
-                    {formatCurrency(pnl)}
-                  </td>
-                </tr>
-              );
-            })}
-
-            {games.length === 0 && (
-              <tr>
-                <td colSpan={3} className="text-center text-gray-500 py-6">
-                  No games available.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    );
-  }
-
-  // =============== ADMIN VIEW (EDITABLE) ===============
   return (
     <div className="overflow-x-auto relative">
       <table className="min-w-full border-collapse bg-white rounded-lg shadow-md">
@@ -191,25 +168,24 @@ const UserTable: React.FC<UserTableProps> = ({ mode = "user" }) => {
             <th className="px-4 py-3 text-center">Redeem (+)</th>
             <th className="px-4 py-3 text-center">Deposit (-)</th>
             <th className="px-4 py-3 text-center">Total Coins</th>
+            <th className="px-4 py-3 text-center">Value</th>
             <th className="px-4 py-3 text-right">Edit</th>
           </tr>
         </thead>
 
         <tbody className="text-sm text-gray-700">
           {games.map((game) => {
-            const earned = safeNumber(game.coinsEarned); // freeplay
-            const spent = safeNumber(game.coinsSpent); // redeem
-            const recharged = safeNumber(game.coinsRecharged); // deposit
+            const gameId = game.id;
+            const totalCoins = safeNumber((game as any).totalCoins);
 
-            // freeplay subtract, deposit subtract, redeem add
-            const totalCoins = earned + recharged - spent;
-            const pnl = totalCoins * COIN_VALUE;
-
-            const session = sessionValues[game.id] || {
+            // per-day/session values (start from 0)
+            const session = sessionValues[gameId] || {
               freeplay: 0,
               redeem: 0,
               deposit: 0,
             };
+
+            const pnl = totalCoins * COIN_VALUE;
 
             return (
               <tr key={game.id} className="border-b hover:bg-gray-50">
@@ -217,35 +193,35 @@ const UserTable: React.FC<UserTableProps> = ({ mode = "user" }) => {
                   {game.name}
                 </td>
 
-                {/* Freeplay – subtracts total */}
+                {/* Freeplay (per-day/session total) */}
                 <td className="px-4 py-3 text-center text-red-500 font-semibold">
                   {session.freeplay.toLocaleString()}
                 </td>
 
-                {/* Redeem – adds to total */}
+                {/* Redeem (per-day/session total) */}
                 <td className="px-4 py-3 text-center text-emerald-600 font-semibold">
                   {session.redeem.toLocaleString()}
                 </td>
 
-                {/* Deposit – subtracts total */}
+                {/* Deposit (per-day/session total) */}
                 <td className="px-4 py-3 text-center text-red-500 font-semibold">
                   {session.deposit.toLocaleString()}
                 </td>
 
                 {/* Total Coins */}
                 <td className="px-4 py-3 text-center">
-                  <div className="flex flex-col items-center">
-                    <span
-                      className={`font-semibold ${
-                        totalCoins >= 0 ? "text-emerald-600" : "text-red-600"
-                      }`}
-                    >
-                      {totalCoins.toLocaleString()}
-                    </span>
-                    <span className="text-[11px] text-slate-400">
-                      {formatCurrency(pnl)}
-                    </span>
-                  </div>
+                  <span
+                    className={`font-semibold ${
+                      totalCoins >= 0 ? "text-emerald-600" : "text-red-600"
+                    }`}
+                  >
+                    {totalCoins.toLocaleString()}
+                  </span>
+                </td>
+
+                {/* Value */}
+                <td className="px-4 py-3 text-center text-slate-600">
+                  {formatCurrency(pnl)}
                 </td>
 
                 {/* Edit Button */}
@@ -268,7 +244,7 @@ const UserTable: React.FC<UserTableProps> = ({ mode = "user" }) => {
 
           {games.length === 0 && (
             <tr>
-              <td colSpan={6} className="text-center text-gray-500 py-6">
+              <td colSpan={7} className="text-center text-gray-500 py-6">
                 No games available.
               </td>
             </tr>
@@ -276,7 +252,7 @@ const UserTable: React.FC<UserTableProps> = ({ mode = "user" }) => {
         </tbody>
       </table>
 
-      {/* 🧩 EDIT POPUP – ADMIN ONLY */}
+      {/* 🧩 EDIT POPUP */}
       {editingGame && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-lg p-6 w-full max-w-sm relative">

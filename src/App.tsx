@@ -6,6 +6,7 @@ import axios from "axios";
 import AuthCard from "./AuthCard";
 import UserDashboard from "./user/UserDashboard.tsx";
 import AdminDashboard from "./admin/AdminDashboard.tsx";
+import { useAuth } from "./AuthContext";
 
 const App: FC = () => {
   const [isAuthed, setIsAuthed] = useState(false);

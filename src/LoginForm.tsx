@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { apiClient } from "./apiConfig";
+import { AxiosError } from "axios";
 
 interface LoginFormProps {
   onSwitchToRegister: () => void;

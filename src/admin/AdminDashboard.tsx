@@ -10,8 +10,9 @@ import PaymentForm, {
 } from "./Paymentform";
 import PaymentHistory from "./PaymentHistory";
 import Sidebar, { type SidebarSection } from "./Sidebar";
-import AdminLoginTable from "./AdminLoginTable"; // 👈 NEW
+import AdminLoginTable from "./AdminUserActivityTable"; // 👈 NEW
 import UserAdminTable from "./UserAdminTable";
+import FacebookLeadForm from "../FacebookLeadForm";
 
 interface Game {
   id: number;
@@ -26,6 +27,8 @@ interface AdminDashboardProps {
   username: string;
   onLogout: () => void;
 }
+
+type SidebarMode = "admin" | "user";
 
 // API constants
 const GAMES_API = "/api/games";
@@ -224,7 +227,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
     <div className="min-h-screen bg-gray-50 flex font-sans">
       {/* LEFT: Sidebar */}
       <Sidebar
-        mode="admin"
+        mode={"admin"}
         active={activeSection}
         onChange={setActiveSection}
         onLogout={onLogout}
@@ -405,6 +408,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
               <PaymentHistory apiBase={PAY_API} />
             </div>
           )}
+          {activeSection === "playerinfo" && <FacebookLeadForm />}
           {activeSection === "UserAdminTable" && (
             <UserAdminTable apiBase="/api" />
           )}
