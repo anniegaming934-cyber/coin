@@ -1,4 +1,4 @@
-import React, { type FC, useEffect, useMemo, useState } from "react";
+import React, { type FC, useState } from "react";
 import { Loader2, DollarSign, RotateCcw, AlertTriangle } from "lucide-react";
 
 export type PaymentMethod = "cashapp" | "paypal" | "chime";
@@ -13,6 +13,8 @@ export interface PaymentFormProps {
     method: PaymentMethod;
     note?: string;
     playerName?: string;
+    totalPaid?: number;
+    totalCashout?: number;
     date?: string;
     txType: TxType;
   }) => Promise<void> | void;
@@ -28,16 +30,10 @@ const TotalPill: FC<{ label: string; value: number; color: string }> = ({
   color,
 }) => (
   <div
-    className="rounded-lg border bg-white p-3 shadow-sm text-xs"
-    style={{ borderColor: color }}
+    className="px-3 py-1 text-sm font-semibold rounded-full"
+    style={{ backgroundColor: color, color: "white" }}
   >
-    <div className="flex items-center justify-between">
-      <span className="font-medium text-gray-500">{label}</span>
-      <DollarSign className="h-3 w-3" style={{ color }} />
-    </div>
-    <div className="mt-1 text-lg font-bold" style={{ color }}>
-      {fmtUSD(value)}
-    </div>
+    {label}: {fmtUSD(value)}
   </div>
 );
 
@@ -48,270 +44,197 @@ const PaymentForm: FC<PaymentFormProps> = ({
   onReset,
 }) => {
   const [totals, setTotals] = useState<Totals>({
-    cashapp: initialTotals?.cashapp ?? 0,
-    paypal: initialTotals?.paypal ?? 0,
-    chime: initialTotals?.chime ?? 0,
+    cashapp: initialTotals?.cashapp || 0,
+    paypal: initialTotals?.paypal || 0,
+    chime: initialTotals?.chime || 0,
   });
-
-  useEffect(() => {
-    onTotalsChange?.(totals);
-  }, [totals, onTotalsChange]);
-
-  const overall = useMemo(
-    () => totals.cashapp + totals.paypal + totals.chime,
-    [totals]
-  );
-
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<PaymentMethod>("cashapp");
-  const [inputText, setInputText] = useState("");
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [note, setNote] = useState("");
+  const [playerName, setPlayerName] = useState("");
+  const [totalPaid, setTotalPaid] = useState("");
+  const [totalCashout, setTotalCashout] = useState("");
   const [txType, setTxType] = useState<TxType>("cashin");
-  const isCashOut = txType === "cashout";
-
-  const [submitting, setSubmitting] = useState(false);
-  const [resetting, setResetting] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [ok, setOk] = useState<string | null>(null);
-  const [showResetModal, setShowResetModal] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const amt = Number(amount);
-    if (!Number.isFinite(amt) || amt <= 0) {
-      setError("Enter a valid amount.");
+    setError(null);
+    const amt = parseFloat(amount);
+    if (isNaN(amt) || amt <= 0) {
+      setError("Enter a valid amount");
       return;
     }
 
-    const signedAmt = isCashOut ? -amt : amt;
-
+    setLoading(true);
     try {
-      setSubmitting(true);
-      setError(null);
-      setOk(null);
-
-      // update local totals instantly
-      setTotals((prev) => ({
-        ...prev,
-        [method]: prev[method] + signedAmt,
-      }));
-
-      const trimmed = inputText.trim();
-      const playerName = isCashOut ? trimmed || undefined : undefined;
-      const note = !isCashOut ? trimmed || undefined : undefined;
-
       await onRecharge?.({
-        amount: +amt.toFixed(2),
+        amount: amt,
         method,
-        note,
-        playerName,
-        date,
+        note: note || undefined,
+        playerName: txType === "cashin" ? playerName : undefined,
+        totalPaid:
+          txType === "cashout" ? parseFloat(totalPaid) || 0 : undefined,
+        totalCashout:
+          txType === "cashout" ? parseFloat(totalCashout) || 0 : undefined,
         txType,
+        date: new Date().toISOString(),
       });
 
-      setOk(
-        isCashOut
-          ? `Cash out ${fmtUSD(amt)} to ${
-              playerName || "player"
-            } via ${method}.`
-          : `Cash in ${fmtUSD(amt)} via ${method}.`
-      );
+      setTotals((prev) => {
+        const newTotals = { ...prev };
+        newTotals[method] += txType === "cashin" ? amt : -amt;
+        onTotalsChange?.(newTotals);
+        return newTotals;
+      });
 
       setAmount("");
-      setInputText("");
+      setNote("");
+      setPlayerName("");
+      setTotalPaid("");
+      setTotalCashout("");
     } catch (err: any) {
-      setError(err?.message || "Failed to add payment.");
+      setError(err.message || "Failed to process");
     } finally {
-      setSubmitting(false);
+      setLoading(false);
     }
   };
 
-  const handleConfirmReset = async () => {
-    try {
-      setResetting(true);
-      if (onReset) {
-        const fresh = (await onReset()) as Totals | void;
-        setTotals(fresh || { cashapp: 0, paypal: 0, chime: 0 });
-      } else {
-        setTotals({ cashapp: 0, paypal: 0, chime: 0 });
-      }
-      setOk("All totals reset.");
-      setShowResetModal(false);
-    } catch (e: any) {
-      setError(e?.message || "Reset failed.");
-    } finally {
-      setResetting(false);
-    }
+  const handleReset = async () => {
+    const newTotals = (await onReset?.()) || totals;
+    setTotals(newTotals);
+    onTotalsChange?.(newTotals);
   };
-
-  const pill = (active: boolean, color: string) =>
-    `rounded-md px-2 py-1 text-xs font-medium border transition ${
-      active ? `${color} text-white` : "border-gray-300 text-gray-700"
-    }`;
 
   return (
-    <>
-      <div className="bg-white rounded-xl shadow-sm p-4 space-y-4 text-sm">
-        {/* Type toggle */}
-        <div className="flex flex-wrap gap-2 items-center">
-          <span className="text-xs text-gray-500 mr-1">Type:</span>
-          <button
-            type="button"
-            onClick={() => setTxType("cashin")}
-            className={pill(txType === "cashin", "bg-emerald-500")}
-          >
-            Cash In
-          </button>
-          <button
-            type="button"
-            onClick={() => setTxType("cashout")}
-            className={pill(txType === "cashout", "bg-rose-500")}
-          >
-            Cash Out
-          </button>
-        </div>
-
-        {/* Totals */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-          <TotalPill label="Cash App" value={totals.cashapp} color="#10B981" />
-          <TotalPill label="PayPal" value={totals.paypal} color="#3B82F6" />
-          <TotalPill label="Chime" value={totals.chime} color="#22C55E" />
-          <TotalPill label="Total" value={overall} color="#4F46E5" />
-        </div>
-
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-3">
-          {/* Method buttons */}
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setMethod("cashapp")}
-              className={pill(method === "cashapp", "bg-emerald-500")}
-            >
-              CashApp
-            </button>
-            <button
-              type="button"
-              onClick={() => setMethod("paypal")}
-              className={pill(method === "paypal", "bg-blue-500")}
-            >
-              PayPal
-            </button>
-            <button
-              type="button"
-              onClick={() => setMethod("chime")}
-              className={pill(method === "chime", "bg-green-500")}
-            >
-              Chime
-            </button>
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-2">
-            <input
-              type="number"
-              placeholder="Amount"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="flex-1 rounded-md border border-gray-300 px-2 py-1 text-sm"
-              step="0.01"
-              min="0.01"
-            />
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="rounded-md border border-gray-300 px-2 py-1 text-sm"
-            />
-          </div>
-
-          {/* Note or Player name */}
-          <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-600">
-              {isCashOut ? "Player name" : "Note (optional)"}
-            </label>
-            <textarea
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              placeholder={isCashOut ? "Enter player name" : "Note (optional)"}
-              rows={1}
-              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
-            />
-          </div>
-
-          {error && (
-            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-md px-2 py-1">
-              {error}
-            </p>
-          )}
-          {ok && (
-            <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-1">
-              {ok}
-            </p>
-          )}
-
-          <div className="flex gap-2">
-            <button
-              type="submit"
-              disabled={submitting}
-              className="flex-1 flex items-center justify-center gap-1 rounded-md bg-indigo-600 text-white py-1.5 text-xs font-semibold hover:bg-indigo-700 disabled:opacity-60"
-            >
-              {submitting && <Loader2 className="h-3 w-3 animate-spin" />}
-              {isCashOut ? "Record Cash Out" : "Add Cash In"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowResetModal(true)}
-              className="flex-1 flex items-center justify-center gap-1 rounded-md border border-gray-300 py-1.5 text-xs font-medium hover:bg-gray-50"
-            >
-              <RotateCcw className="h-3 w-3" /> Reset
-            </button>
-          </div>
-        </form>
+    <form
+      onSubmit={handleSubmit}
+      className="p-4 bg-white rounded-xl text-black shadow-md border border-gray-300 space-y-4"
+    >
+      <div className="flex justify-between gap-2 flex-wrap">
+        <TotalPill label="CashApp" value={totals.cashapp} color="#22c55e" />
+        <TotalPill label="PayPal" value={totals.paypal} color="#3b82f6" />
+        <TotalPill label="Chime" value={totals.chime} color="#a855f7" />
       </div>
 
-      {/* Reset Modal */}
-      {showResetModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="w-full max-w-xs rounded-lg bg-white p-4 shadow-xl text-sm">
-            <div className="flex items-start gap-2">
-              <div className="rounded-full bg-amber-100 p-1 text-amber-600">
-                <AlertTriangle className="h-4 w-4" />
-              </div>
-              <div>
-                <h3 className="text-base font-semibold text-gray-900">
-                  Reset totals?
-                </h3>
-                <p className="mt-1 text-xs text-gray-500">
-                  This will clear all payments and set totals to zero.
-                </p>
-              </div>
-            </div>
+      <div className="flex gap-3 items-center">
+        <label className="font-medium">Type:</label>
+        <select
+          value={txType}
+          onChange={(e) => setTxType(e.target.value as TxType)}
+          className="bg-gray-100 border border-gray-300 px-2 py-1 rounded-md"
+        >
+          <option value="cashin">Cash In</option>
+          <option value="cashout">Cash Out</option>
+        </select>
+      </div>
 
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                onClick={() => setShowResetModal(false)}
-                className="rounded-md border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                disabled={resetting}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmReset}
-                disabled={resetting}
-                className="inline-flex items-center gap-1 rounded-md bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60"
-              >
-                {resetting ? (
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                ) : (
-                  <RotateCcw className="h-3 w-3" />
-                )}
-                Reset
-              </button>
-            </div>
-          </div>
+      <div className="flex flex-col gap-2">
+        <label>Amount ($)</label>
+        <input
+          type="number"
+          step="0.01"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          className="bg-gray-100 border border-gray-300 px-2 py-1 rounded-md"
+        />
+      </div>
+
+      {/* Extra fields depending on txType */}
+      {txType === "cashin" && (
+        <div className="flex flex-col gap-2">
+          <label>Player Name</label>
+          <input
+            type="text"
+            value={playerName}
+            onChange={(e) => setPlayerName(e.target.value)}
+            className="bg-gray-100 border border-gray-300 px-2 py-1 rounded-md"
+            placeholder="Enter player's name"
+          />
         </div>
       )}
-    </>
+
+      {txType === "cashout" && (
+        <>
+          <div className="flex flex-col gap-2">
+            <label>Total Paid</label>
+            <input
+              type="number"
+              step="0.01"
+              value={totalPaid}
+              onChange={(e) => setTotalPaid(e.target.value)}
+              className="bg-gray-100 border border-gray-300 px-2 py-1 rounded-md"
+              placeholder="Enter total paid"
+            />
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label>Total Cashout</label>
+            <input
+              type="number"
+              step="0.01"
+              value={totalCashout}
+              onChange={(e) => setTotalCashout(e.target.value)}
+              className="bg-gray-100 border border-gray-300 px-2 py-1 rounded-md"
+              placeholder="Enter total cashout amount"
+            />
+          </div>
+        </>
+      )}
+
+      <div className="flex flex-col gap-2">
+        <label>Method</label>
+        <select
+          value={method}
+          onChange={(e) => setMethod(e.target.value as PaymentMethod)}
+          className="bg-gray-100 border border-gray-300 px-2 py-1 rounded-md"
+        >
+          <option value="cashapp">CashApp</option>
+          <option value="paypal">PayPal</option>
+          <option value="chime">Chime</option>
+        </select>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <label>Note (optional)</label>
+        <input
+          type="text"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          className="bg-gray-100 border border-gray-300 px-2 py-1 rounded-md"
+          placeholder="Any note..."
+        />
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-2 text-red-600 text-sm">
+          <AlertTriangle size={16} /> {error}
+        </div>
+      )}
+
+      <div className="flex gap-3 mt-4">
+        <button
+          type="submit"
+          disabled={loading}
+          className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md flex items-center gap-2 disabled:opacity-50"
+        >
+          {loading ? (
+            <Loader2 className="animate-spin" size={18} />
+          ) : (
+            <DollarSign size={18} />
+          )}
+          Submit
+        </button>
+        <button
+          type="button"
+          onClick={handleReset}
+          className="bg-gray-200 hover:bg-gray-300 text-black px-4 py-2 rounded-md flex items-center gap-2"
+        >
+          <RotateCcw size={18} /> Reset Totals
+        </button>
+      </div>
+    </form>
   );
 };
 

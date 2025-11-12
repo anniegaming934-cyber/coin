@@ -4,15 +4,13 @@ import type { FC } from "react";
 import { apiClient } from "../apiConfig";
 import GameRow, { GameHeaderRow } from "./Gamerow";
 import AddGameForm from "./Addgame";
-import PaymentForm, {
-  type PaymentMethod,
-  type PaymentFormProps,
-} from "./Paymentform";
+import PaymentForm, { type PaymentFormProps } from "./Paymentform";
 import PaymentHistory from "./PaymentHistory";
 import Sidebar, { type SidebarSection } from "./Sidebar";
-import AdminLoginTable from "./AdminUserActivityTable"; // 👈 NEW
-import UserAdminTable from "./UserAdminTable";
 import FacebookLeadForm from "../FacebookLeadForm";
+import UserAdminTable from "./UserAdminTable";
+import UserHistory from "./AdminUserHistory";
+import AdminUserActivityTable from "./AdminUserActivityTable";
 
 interface Game {
   id: number;
@@ -28,8 +26,6 @@ interface AdminDashboardProps {
   onLogout: () => void;
 }
 
-type SidebarMode = "admin" | "user";
-
 // API constants
 const GAMES_API = "/api/games";
 const PAY_API = "/api"; // /api/totals, /api/payments/*, /api/reset
@@ -41,6 +37,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
   const [editingGameId, setEditingGameId] = useState<number | null>(null);
   const [activeSection, setActiveSection] =
     useState<SidebarSection>("overview");
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   const [paymentTotals, setPaymentTotals] = useState({
     cashapp: 0,
@@ -241,7 +238,10 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">
             {activeSection === "overview" && "Admin Overview"}
             {activeSection === "games" && "Games"}
-
+            {activeSection === "payments" && "Payments"}
+            {activeSection === "playerinfo" && "Player Info"}
+            {activeSection === "UserAdminTable" && "User Admin"}
+            {activeSection === "userHistroy" && "User History"}
             {activeSection === "settings" && "Settings"}
           </h1>
         </header>
@@ -339,16 +339,17 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                 </div>
               </div>
 
-              {/* 👇 NEW: Login history table for admin */}
+              {/* 👇 Admin user activity table (main admin user focus) */}
               <div className="mb-8">
-                <AdminLoginTable />
+                <AdminUserActivityTable />
               </div>
 
-              {/* Payments + games */}
+              {/* Add game form */}
               <div className="mb-10 gap-6 mt-6">
                 <AddGameForm onGameAdded={fetchGames} />
               </div>
 
+              {/* Games list */}
               <div className="mt-8 overflow-hidden rounded-lg border border-gray-200 shadow-sm">
                 <GameHeaderRow />
                 <div className="divide-y divide-gray-100">
@@ -408,9 +409,28 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
               <PaymentHistory apiBase={PAY_API} />
             </div>
           )}
+
+          {/* PLAYER INFO TAB */}
           {activeSection === "playerinfo" && <FacebookLeadForm />}
+
+          {/* USER ADMIN TAB */}
           {activeSection === "UserAdminTable" && (
-            <UserAdminTable apiBase="/api" />
+            <UserAdminTable
+              onViewHistory={(userId: string) => {
+                setSelectedUserId(userId);
+                setActiveSection("userHistroy");
+              }}
+            />
+          )}
+
+          {/* USER HISTORY TAB */}
+          {activeSection === "userHistroy" && selectedUserId && (
+            <UserHistory
+              onViewHistory={(userId: string) => {
+                setSelectedUserId(userId);
+                setActiveSection("userHistroy");
+              }}
+            />
           )}
 
           {/* SETTINGS TAB */}

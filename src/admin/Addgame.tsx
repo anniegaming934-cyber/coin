@@ -13,7 +13,7 @@ const AddGameForm: FC<AddGameFormProps> = ({ onGameAdded }) => {
     if (!name.trim()) return;
 
     try {
-      await apiClient.post("/api/games", {
+      await apiClient.post("/games", {
         name: name.trim(),
         coinsSpent: 0,
         coinsEarned: 0,

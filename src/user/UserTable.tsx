@@ -18,7 +18,9 @@ type SessionValues = {
   redeem: number;
   deposit: number;
 };
-
+interface UserAdminTableProps {
+  onViewHistory: (userId: string) => void;
+}
 interface UserTableProps {
   username?: string; // will be sent to backend
 }

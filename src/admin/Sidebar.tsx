@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Info,
+  UserRoundPlus,
 } from "lucide-react";
 
 export type SidebarSection =
@@ -64,7 +65,7 @@ const Sidebar: FC<SidebarProps> = ({
       { id: "charts", label: "Charts", icon: BarChart2 },
       { id: "UserAdminTable", label: "UserAdmin Table", icon: User },
       { id: "playerinfo", label: "Player Info", icon: Info },
-      { id: "userHistroy", label: "User History", icon: BarChart2 },
+      { id: "userHistroy", label: "User History", icon: UserRoundPlus },
       { id: "settings", label: "Settings", icon: Settings },
     ];
 

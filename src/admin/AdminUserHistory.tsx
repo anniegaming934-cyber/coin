@@ -1,0 +1,192 @@
+// src/components/UserHistory.tsx
+import React, { useEffect, useState, useMemo } from "react";
+import { ColumnDef } from "@tanstack/react-table";
+import { apiClient } from "../apiConfig";
+import { DataTable } from "../DataTable";
+// ✅ same folder
+
+interface UserHistoryProps {
+  userId: string;
+}
+
+export interface UserHistoryItem {
+  _id: string;
+  createdAt: string;
+  gameName?: string;
+  type: "deposit" | "freeplay" | "cashin" | "cashout" | "redeem";
+  amount: number;
+}
+
+export interface UserHistoryTotals {
+  totalGames: number;
+  totalDeposit: number;
+  totalFreeplay: number;
+  totalCashIn: number;
+  totalCashOut: number;
+  totalRedeem: number;
+}
+
+export interface UserHistoryUser {
+  _id: string;
+  username: string;
+  email?: string;
+}
+
+export interface UserHistoryResponse {
+  user: UserHistoryUser;
+  totals: UserHistoryTotals;
+  history: UserHistoryItem[];
+}
+
+const fmtDateTime = (iso: string) => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "-";
+  return d.toLocaleString();
+};
+
+const fmtAmount = (n: number) =>
+  n.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+const UserHistory: FC<UserAdminTableProps> = ({ onViewHistory }) => {
+  const [userName, setUserName] = useState<string>("");
+  const [userEmail, setUserEmail] = useState<string>("");
+  const [totals, setTotals] = useState<UserHistoryTotals | null>(null);
+  const [history, setHistory] = useState<UserHistoryItem[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const loadHistory = async () => {
+      setLoading(true);
+      try {
+        const res = await apiClient.get<UserHistoryResponse>(
+          `/api/admin/users/${userId}/history` // ✅ added /api
+        );
+
+        console.log("UserHistory response:", res.data); // ✅ debug
+
+        setUserName(res.data.user.username);
+        setUserEmail(res.data.user.email || "");
+        setTotals(res.data.totals);
+        setHistory(res.data.history);
+      } catch (err) {
+        console.error("Failed to load user history", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (userId) {
+      loadHistory();
+    }
+  }, [userId]);
+
+  const columns = useMemo<ColumnDef<UserHistoryItem, any>[]>(
+    () => [
+      {
+        accessorKey: "createdAt",
+        header: "Date",
+        cell: ({ row }) => fmtDateTime(row.original.createdAt),
+      },
+      {
+        accessorKey: "gameName",
+        header: "Game",
+        cell: ({ row }) => row.original.gameName || "-",
+      },
+      {
+        accessorKey: "type",
+        header: "Type",
+        cell: ({ row }) => {
+          const t = row.original.type;
+          switch (t) {
+            case "deposit":
+              return "Deposit";
+            case "freeplay":
+              return "Freeplay";
+            case "cashin":
+              return "Cash In";
+            case "cashout":
+              return "Cash Out";
+            case "redeem":
+              return "Redeem";
+            default:
+              return t;
+          }
+        },
+      },
+      {
+        accessorKey: "amount",
+        header: "Amount",
+        cell: ({ row }) => fmtAmount(row.original.amount),
+      },
+    ],
+    []
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* Header */}
+      <div className="flex flex-col gap-1">
+        <h1 className="text-xl font-semibold">
+          User History {userName ? `· ${userName}` : ""}
+        </h1>
+        {userEmail && (
+          <p className="text-sm text-gray-500">Email: {userEmail}</p>
+        )}
+      </div>
+
+      {/* Totals summary */}
+      {totals && (
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+          <div className="p-3 border rounded-md">
+            <div className="text-xs text-gray-500">Total Games</div>
+            <div className="text-lg font-semibold">{totals.totalGames}</div>
+          </div>
+          <div className="p-3 border rounded-md">
+            <div className="text-xs text-gray-500">Total Deposit</div>
+            <div className="text-lg font-semibold">
+              {fmtAmount(totals.totalDeposit)}
+            </div>
+          </div>
+          <div className="p-3 border rounded-md">
+            <div className="text-xs text-gray-500">Total Freeplay</div>
+            <div className="text-lg font-semibold">
+              {fmtAmount(totals.totalFreeplay)}
+            </div>
+          </div>
+          <div className="p-3 border rounded-md">
+            <div className="text-xs text-gray-500">Total Cash In</div>
+            <div className="text-lg font-semibold">
+              {fmtAmount(totals.totalCashIn)}
+            </div>
+          </div>
+          <div className="p-3 border rounded-md">
+            <div className="text-xs text-gray-500">Total Cash Out</div>
+            <div className="text-lg font-semibold">
+              {fmtAmount(totals.totalCashOut)}
+            </div>
+          </div>
+          <div className="p-3 border rounded-md">
+            <div className="text-xs text-gray-500">Total Redeem</div>
+            <div className="text-lg font-semibold">
+              {fmtAmount(totals.totalRedeem)}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* History table */}
+      <DataTable<UserHistoryItem, any>
+        columns={columns}
+        data={history}
+        isLoading={loading}
+        emptyMessage="No history records found."
+        onRowClick={(row) => console.log("history row clicked", row)}
+      />
+    </div>
+  );
+};
+
+export default UserHistory;
