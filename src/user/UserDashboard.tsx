@@ -1,26 +1,23 @@
 // src/UserDashboard.tsx
 import { useEffect, useState, type FC } from "react";
-import { apiClient } from "../apiConfig"; // <- our axios instance
+import { apiClient } from "../apiConfig";
 
 import Sidebar, { type SidebarSection } from "../admin/Sidebar";
 import UserSessionBar from "./UserSessionBar";
-import PaymentForm, {
-  type PaymentMethod,
-  type TxType,
-} from "../admin/Paymentform";
+import PaymentForm, { type PaymentMethod, type TxType } from "./Paymentform";
 import PaymentHistory from "../admin/PaymentHistory";
 import UserTable from "./UserTable";
 import UserCharts from "./UserCharts";
 
 import type { Game } from "../admin/Gamerow";
 import GameEntryForm from "./GameEntryForm";
-import RecentEntriesTable from "./RecentEntriesTable";
+import RecentEntriesTable, { GameEntry } from "./RecentEntriesTable";
 
 // -----------------------------
 // Constants
 // -----------------------------
 const GAMES_API = "/api/games";
-const PAY_API = "/api"; // /api/payments/cashin, /api/payments/cashout, /api/reset
+const PAY_API = "/api"; // /api/payments/cashin, /api/payments/cashout, /api/reset, /api/totals
 const COIN_VALUE = 0.15;
 
 interface UserDashboardProps {
@@ -32,6 +29,7 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
   const [games, setGames] = useState<Game[]>([]);
   const [activeSection, setActiveSection] =
     useState<SidebarSection>("overview");
+  const [recent, setRecent] = useState<GameEntry[]>([]);
 
   const [paymentTotals, setPaymentTotals] = useState({
     cashapp: 0,
@@ -40,35 +38,59 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
   });
 
   // -----------------------------
-  // Load games from backend
+  // Load games + entries + payment totals
   // -----------------------------
   useEffect(() => {
     fetchGames();
+    loadRecent();
+    preloadTotals();
   }, []);
 
   const fetchGames = async () => {
     try {
       const { data } = await apiClient.get(GAMES_API);
-      if (!Array.isArray(data)) {
-        console.error("❌ Expected an array of games, got:", data);
-        setGames([]);
-        return;
-      }
-      setGames(data);
+      setGames(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("Failed to fetch games:", error);
       setGames([]);
     }
   };
 
+  const loadRecent = async () => {
+    try {
+      const { data } = await apiClient.get<GameEntry[]>("/api/game-entries");
+      setRecent(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Failed to load recent entries:", err);
+    }
+  };
+
+  const preloadTotals = async () => {
+    try {
+      const { data } = await apiClient.get(`${PAY_API}/totals`);
+      if (data && typeof data === "object") {
+        // expect { cashapp, paypal, chime }
+        setPaymentTotals({
+          cashapp: Number(data.cashapp) || 0,
+          paypal: Number(data.paypal) || 0,
+          chime: Number(data.chime) || 0,
+        });
+      }
+    } catch (err) {
+      console.warn("Could not preload totals:", err);
+    }
+  };
+
   // -----------------------------
-  // Payment handlers (match backend)
+  // Payment handlers (match PaymentForm props + backend)
   // -----------------------------
   const onRecharge = async ({
     amount,
     method,
     note,
     playerName,
+    totalPaid,
+    totalCashout,
     date,
     txType,
   }: {
@@ -76,39 +98,63 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
     method: PaymentMethod;
     note?: string;
     playerName?: string;
+    totalPaid?: number;
+    totalCashout?: number;
     date?: string;
     txType: TxType; // "cashin" | "cashout"
   }) => {
-    // Decide endpoint based on txType
     const endpoint =
       txType === "cashout"
         ? `${PAY_API}/payments/cashout`
         : `${PAY_API}/payments/cashin`;
 
-    // Backend expects:
-    // - cashin: { amount, method, note?, date? }
-    // - cashout: { amount, method, playerName, date? }
-    const payload: any = {
-      amount,
-      method,
-      date,
-    };
-
-    if (txType === "cashout") {
-      payload.playerName = playerName;
-    } else {
-      payload.note = note;
+    // Client-side guard for better UX (backend also enforces this)
+    if (txType === "cashout" && !playerName?.trim()) {
+      throw new Error("Player name is required for cash out");
     }
 
-    const { data } = await apiClient.post(endpoint, payload);
-    // backend returns { ok, payment, totals }
-    setPaymentTotals(data.totals);
+    // Build payloads exactly as backend expects:
+    // cashin:  { amount, method, note?, playerName?, date? }
+    // cashout: { amount, method, playerName, totalPaid?, totalCashout?, date? }
+    const payload: any = { amount, method, date };
+
+    if (txType === "cashin") {
+      if (note) payload.note = note;
+      if (playerName?.trim()) payload.playerName = playerName.trim();
+    } else {
+      payload.playerName = playerName!.trim();
+      if (totalPaid != null) payload.totalPaid = Number(totalPaid);
+      if (totalCashout != null) payload.totalCashout = Number(totalCashout);
+    }
+
+    try {
+      const { data } = await apiClient.post(endpoint, payload);
+      // backend returns { ok, payment, totals }
+      if (data?.totals) setPaymentTotals(data.totals);
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Failed to submit payment";
+      throw new Error(msg);
+    }
   };
 
   const onReset = async () => {
-    const { data } = await apiClient.post(`${PAY_API}/reset`);
-    setPaymentTotals(data.totals);
-    return data.totals;
+    try {
+      const { data } = await apiClient.post(`${PAY_API}/reset`);
+      if (data?.totals) {
+        setPaymentTotals(data.totals);
+        return data.totals;
+      }
+      return paymentTotals;
+    } catch (err: any) {
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        "Failed to reset totals";
+      throw new Error(msg);
+    }
   };
 
   // -----------------------------
@@ -135,17 +181,19 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
             {activeSection === "games" && "Games"}
             {activeSection === "charts" && "Charts"}
             {activeSection === "paymentsHistory" && "Payment History"}
+            {activeSection === "depositRecord" && "Recent Game Entries"}
             {activeSection === "settings" && "Settings"}
           </h1>
         </header>
 
         <main className="flex-1 overflow-y-auto p-4 sm:p-8">
-          {/* OVERVIEW TAB – payments + table */}
+          {/* OVERVIEW TAB – entries + payments */}
           {activeSection === "overview" && (
             <>
               <div className="grid grid-cols-1 gap-6 mb-8">
                 <GameEntryForm />
               </div>
+
               <div className="grid grid-cols-1 gap-6 mb-8">
                 <PaymentForm
                   initialTotals={paymentTotals}
@@ -154,13 +202,13 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
                   onReset={onReset}
                 />
               </div>
-              <div className="grid grid-cols-1 gap-6 mb-8"></div>
             </>
           )}
 
           {/* GAMES TAB – only games table */}
           {activeSection === "games" && (
             <div className="mt-4">
+              {/* If your UserTable accepts username, pass it: <UserTable username={username} /> */}
               <UserTable mode="user" />
             </div>
           )}
@@ -175,8 +223,18 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
           {/* PAYMENTS HISTORY TAB */}
           {activeSection === "paymentsHistory" && (
             <div className="mt-4">
-              {/* PaymentHistory likely does its own GET /api/payments etc. */}
               <PaymentHistory apiBase={PAY_API} />
+            </div>
+          )}
+
+          {/* RECENT GAME ENTRIES */}
+          {activeSection === "depositRecord" && (
+            <div className="mt-4">
+              <RecentEntriesTable
+                recent={recent}
+                onRefresh={loadRecent}
+                title="Recent Game Entries"
+              />
             </div>
           )}
 

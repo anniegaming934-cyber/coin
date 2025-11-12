@@ -12,9 +12,9 @@ export interface PaymentFormProps {
     amount: number;
     method: PaymentMethod;
     note?: string;
-    playerName?: string;
-    totalPaid?: number;
-    totalCashout?: number;
+    playerName?: string; // <-- will be sent for both types
+    totalPaid?: number; // cashout-only
+    totalCashout?: number; // cashout-only
     date?: string;
     txType: TxType;
   }) => Promise<void> | void;
@@ -51,7 +51,7 @@ const PaymentForm: FC<PaymentFormProps> = ({
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<PaymentMethod>("cashapp");
   const [note, setNote] = useState("");
-  const [playerName, setPlayerName] = useState("");
+  const [playerName, setPlayerName] = useState(""); // <-- used for both
   const [totalPaid, setTotalPaid] = useState("");
   const [totalCashout, setTotalCashout] = useState("");
   const [txType, setTxType] = useState<TxType>("cashin");
@@ -61,9 +61,16 @@ const PaymentForm: FC<PaymentFormProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
     const amt = parseFloat(amount);
     if (isNaN(amt) || amt <= 0) {
       setError("Enter a valid amount");
+      return;
+    }
+
+    // NEW: cashout requires playerName (backend enforces this)
+    if (txType === "cashout" && !playerName.trim()) {
+      setError("Player name is required for cash out");
       return;
     }
 
@@ -73,7 +80,8 @@ const PaymentForm: FC<PaymentFormProps> = ({
         amount: amt,
         method,
         note: note || undefined,
-        playerName: txType === "cashin" ? playerName : undefined,
+        // NEW: always send playerName if provided (optional for cashin, required for cashout)
+        playerName: playerName.trim() ? playerName.trim() : undefined,
         totalPaid:
           txType === "cashout" ? parseFloat(totalPaid) || 0 : undefined,
         totalCashout:
@@ -82,6 +90,7 @@ const PaymentForm: FC<PaymentFormProps> = ({
         date: new Date().toISOString(),
       });
 
+      // optimistic totals update
       setTotals((prev) => {
         const newTotals = { ...prev };
         newTotals[method] += txType === "cashin" ? amt : -amt;
@@ -89,13 +98,16 @@ const PaymentForm: FC<PaymentFormProps> = ({
         return newTotals;
       });
 
+      // reset inputs
       setAmount("");
       setNote("");
       setPlayerName("");
       setTotalPaid("");
       setTotalCashout("");
     } catch (err: any) {
-      setError(err.message || "Failed to process");
+      setError(
+        err?.response?.data?.message || err.message || "Failed to process"
+      );
     } finally {
       setLoading(false);
     }
@@ -141,20 +153,27 @@ const PaymentForm: FC<PaymentFormProps> = ({
         />
       </div>
 
-      {/* Extra fields depending on txType */}
-      {txType === "cashin" && (
-        <div className="flex flex-col gap-2">
-          <label>Player Name</label>
-          <input
-            type="text"
-            value={playerName}
-            onChange={(e) => setPlayerName(e.target.value)}
-            className="bg-gray-100 border border-gray-300 px-2 py-1 rounded-md"
-            placeholder="Enter player's name"
-          />
-        </div>
-      )}
+      {/* Player Name (optional for cashin, REQUIRED for cashout) */}
+      <div className="flex flex-col gap-2">
+        <label>
+          Player Name{" "}
+          {txType === "cashout" && <span className="text-red-600">*</span>}
+        </label>
+        <input
+          type="text"
+          value={playerName}
+          onChange={(e) => setPlayerName(e.target.value)}
+          className="bg-gray-100 border border-gray-300 px-2 py-1 rounded-md"
+          placeholder={
+            txType === "cashout"
+              ? "Enter player's name (required)"
+              : "Enter player's name (optional)"
+          }
+          required={txType === "cashout"}
+        />
+      </div>
 
+      {/* Cashout-only fields */}
       {txType === "cashout" && (
         <>
           <div className="flex flex-col gap-2">

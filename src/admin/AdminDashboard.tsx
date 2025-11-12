@@ -1,23 +1,33 @@
 // src/AdminDashboard.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FC } from "react";
 import { apiClient } from "../apiConfig";
-import GameRow, { GameHeaderRow } from "./Gamerow";
+import GameRow from "./Gamerow"; // used ONLY for the modal when editing
 import AddGameForm from "./Addgame";
-import PaymentForm, { type PaymentFormProps } from "./Paymentform";
+import PaymentForm, { type PaymentFormProps } from "../user/Paymentform";
 import PaymentHistory from "./PaymentHistory";
 import Sidebar, { type SidebarSection } from "./Sidebar";
 import FacebookLeadForm from "../FacebookLeadForm";
 import UserAdminTable from "./UserAdminTable";
 import UserHistory from "./AdminUserHistory";
 import AdminUserActivityTable from "./AdminUserActivityTable";
+import { DataTable } from "../DataTable";
+import { ColumnDef } from "@tanstack/react-table";
+import {
+  Edit,
+  RotateCcw,
+  Trash2,
+  TrendingDown,
+  TrendingUp,
+  Gamepad,
+} from "lucide-react";
 
 interface Game {
   id: number;
   name: string;
-  coinsEarned: number;
-  coinsSpent: number;
-  coinsRecharged: number;
+  coinsEarned: number;     // redeem in your net calc
+  coinsSpent: number;      // freeplay+deposit in your net calc
+  coinsRecharged: number;  // editable
   lastRechargeDate?: string;
 }
 
@@ -106,6 +116,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
   // ---------------------------
   // Aggregated stats (all games)
   // ---------------------------
+  // NOTE: keeping your original semantics
   const totalFreeplay = games.reduce(
     (sum, g) => sum + (Number(g.coinsEarned) || 0),
     0
@@ -125,7 +136,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
     (Number(paymentTotals.chime) || 0);
 
   // ---------------------------
-  // Game mutations (from GameRow)
+  // Game mutations (from GameRow modal)
   // ---------------------------
   const handleUpdate = (
     id: number,
@@ -138,6 +149,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
       coinsSpent: number;
       coinsEarned: number;
       coinsRecharged: number;
+      lastRechargeDate?: string | null;
     } | null = null;
 
     setGames((prev) =>
@@ -151,7 +163,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
           coinsRecharged: g.coinsRecharged + recharge,
           lastRechargeDate:
             recharge > 0
-              ? rechargeDateISO || new Date().toISOString().slice(0, 10)
+              ? (rechargeDateISO || new Date().toISOString().slice(0, 10))
               : g.lastRechargeDate,
         };
 
@@ -159,6 +171,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
           coinsSpent: updated.coinsSpent,
           coinsEarned: updated.coinsEarned,
           coinsRecharged: updated.coinsRecharged,
+          lastRechargeDate: updated.lastRechargeDate ?? null,
         };
 
         return updated;
@@ -181,6 +194,30 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
     }
   };
 
+  const handleResetRecharge = async (id: number) => {
+    // Try a dedicated reset route; fallback to PUT
+    try {
+      try {
+        await apiClient.post(`${GAMES_API}/${id}/reset-recharge`);
+      } catch {
+        await apiClient.put(`${GAMES_API}/${id}`, {
+          coinsRecharged: 0,
+          lastRechargeDate: null,
+        });
+      }
+      // update local state
+      setGames((prev) =>
+        prev.map((g) =>
+          g.id === id
+            ? { ...g, coinsRecharged: 0, lastRechargeDate: undefined }
+            : g
+        )
+      );
+    } catch (e) {
+      console.error("Failed to reset recharge:", e);
+    }
+  };
+
   // ---------------------------
   // Payments (cashin / cashout separate)
   // ---------------------------
@@ -190,7 +227,6 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
     const { txType, note, playerName, date, ...rest } = payload;
 
     if (txType === "cashout") {
-      // cash OUT endpoint
       const { data } = await apiClient.post(`${PAY_API}/payments/cashout`, {
         ...rest,
         playerName,
@@ -198,7 +234,6 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
       });
       setPaymentTotals(data.totals);
     } else {
-      // cash IN endpoint
       const { data } = await apiClient.post(`${PAY_API}/payments/cashin`, {
         ...rest,
         note,
@@ -216,6 +251,124 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
 
   const formatCurrency = (amount: number): string =>
     amount.toLocaleString("en-US", { style: "currency", currency: "USD" });
+
+  // ---------------------------
+  // DataTable columns for Games
+  // ---------------------------
+  const gameColumns = useMemo<ColumnDef<Game>[]>(() => {
+    return [
+      {
+        header: "Game",
+        accessorKey: "name",
+        cell: ({ row }) => (
+          <div className="flex items-center gap-2">
+            <Gamepad size={18} className="text-indigo-500 hidden md:block" />
+            <span className="font-medium text-gray-800">
+              {row.original.name}
+            </span>
+          </div>
+        ),
+      },
+      {
+        header: "Coin Recharged",
+        accessorKey: "coinsRecharged",
+        cell: ({ getValue }) => (
+          <span className="font-mono text-blue-700">
+            {Number(getValue() ?? 0).toLocaleString()}
+          </span>
+        ),
+      },
+      {
+        header: "Recharge Date",
+        accessorKey: "lastRechargeDate",
+        cell: ({ getValue }) => (
+          <span className="text-xs text-gray-600">
+            {(getValue() as string) || "—"}
+          </span>
+        ),
+      },
+      {
+        header: "Total coin",
+        id: "totalCoin",
+        cell: ({ row }) => {
+          const g = row.original;
+          const derivedNet = g.coinsEarned - (g.coinsSpent + g.coinsRecharged);
+          const total = Math.abs(derivedNet);
+          const cls =
+            derivedNet < 0
+              ? "text-green-700"
+              : derivedNet > 0
+              ? "text-red-700"
+              : "text-gray-500";
+          return (
+            <span className={`font-mono ${cls}`}>{total.toLocaleString()}</span>
+          );
+        },
+      },
+      {
+        header: "P&L",
+        id: "pnl",
+        cell: ({ row }) => {
+          const g = row.original;
+          const derivedNet = g.coinsEarned - (g.coinsSpent + g.coinsRecharged);
+          const pnl = derivedNet * COIN_VALUE;
+          const pos = pnl >= 0;
+          const Icon = pos ? TrendingUp : TrendingDown;
+          return (
+            <span
+              className={`px-2 py-1 rounded-full text-xs font-bold inline-flex items-center ${
+                pos
+                  ? "text-emerald-700 bg-emerald-100"
+                  : "text-red-700 bg-red-100"
+              }`}
+            >
+              <Icon size={14} className="mr-1" />
+              {pnl.toLocaleString("en-US", {
+                style: "currency",
+                currency: "USD",
+              })}
+            </span>
+          );
+        },
+      },
+      {
+        header: "Actions",
+        id: "actions",
+        cell: ({ row }) => (
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={() => setEditingGameId(row.original.id)}
+              className="p-1 text-indigo-600 hover:text-indigo-800 rounded hover:bg-indigo-100"
+              title="Edit recharge"
+            >
+              <Edit size={16} />
+            </button>
+            <button
+              onClick={() => handleResetRecharge(row.original.id)}
+              className="p-1 text-amber-600 hover:text-amber-800 rounded hover:bg-amber-100"
+              title="Reset recharge"
+            >
+              <RotateCcw size={16} />
+            </button>
+            <button
+              onClick={() => handleDelete(row.original.id)}
+              className="p-1 text-red-600 hover:text-red-800 rounded hover:bg-red-100"
+              title="Delete game"
+            >
+              <Trash2 size={16} />
+            </button>
+          </div>
+        ),
+      },
+    ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [games]);
+
+  // small helper to pick the game currently being edited (for the modal)
+  const editingGame = useMemo(
+    () => games.find((g) => g.id === editingGameId) || null,
+    [games, editingGameId]
+  );
 
   // ---------------------------
   // Render
@@ -339,7 +492,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                 </div>
               </div>
 
-              {/* 👇 Admin user activity table (main admin user focus) */}
+              {/* Admin user activity */}
               <div className="mb-8">
                 <AdminUserActivityTable />
               </div>
@@ -349,23 +502,9 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                 <AddGameForm onGameAdded={fetchGames} />
               </div>
 
-              {/* Games list */}
-              <div className="mt-8 overflow-hidden rounded-lg border border-gray-200 shadow-sm">
-                <GameHeaderRow />
-                <div className="divide-y divide-gray-100">
-                  {games.map((game) => (
-                    <GameRow
-                      key={game.id}
-                      game={game}
-                      coinValue={COIN_VALUE}
-                      isEditing={editingGameId === game.id}
-                      onEditStart={(id) => setEditingGameId(id)}
-                      onUpdate={handleUpdate}
-                      onCancel={() => setEditingGameId(null)}
-                      onDelete={handleDelete}
-                    />
-                  ))}
-                </div>
+              {/* Games list — now DataTable */}
+              <div className="mt-8 overflow-hidden rounded-lg border border-gray-200 shadow-sm bg-white p-2">
+                <DataTable columns={gameColumns} data={games} />
               </div>
             </>
           )}
@@ -376,23 +515,8 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
               <div className="mb-6">
                 <AddGameForm onGameAdded={fetchGames} />
               </div>
-
-              <div className="mt-4 overflow-hidden rounded-lg border border-gray-200 shadow-sm">
-                <GameHeaderRow />
-                <div className="divide-y divide-gray-100">
-                  {games.map((game) => (
-                    <GameRow
-                      key={game.id}
-                      game={game}
-                      coinValue={COIN_VALUE}
-                      isEditing={editingGameId === game.id}
-                      onEditStart={(id) => setEditingGameId(id)}
-                      onUpdate={handleUpdate}
-                      onCancel={() => setEditingGameId(null)}
-                      onDelete={handleDelete}
-                    />
-                  ))}
-                </div>
+              <div className="mt-4 overflow-hidden rounded-lg border border-gray-200 shadow-sm bg-white p-2">
+                <DataTable columns={gameColumns} data={games} />
               </div>
             </>
           )}
@@ -423,14 +547,8 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
             />
           )}
 
-          {/* USER HISTORY TAB */}
           {activeSection === "userHistroy" && selectedUserId && (
-            <UserHistory
-              onViewHistory={(userId: string) => {
-                setSelectedUserId(userId);
-                setActiveSection("userHistroy");
-              }}
-            />
+            <UserHistory userId={selectedUserId} />
           )}
 
           {/* SETTINGS TAB */}
@@ -441,6 +559,32 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
           )}
         </main>
       </div>
+
+      {/* Render ONLY the editing modal (via your existing GameRow) */}
+      {editingGame && (
+        <GameRow
+          key={editingGame.id}
+          game={editingGame}
+          coinValue={COIN_VALUE}
+          isEditing={true}
+          onEditStart={() => {}}
+          onUpdate={(
+            id,
+            _spent,
+            _earned,
+            recharge,
+            _totalCoinsAfter?,
+            dateISO?
+          ) => {
+            // keep spent/earned as 0 (we only edit recharge+date)
+            handleUpdate(id, 0, 0, recharge, dateISO);
+          }}
+          onCancel={() => setEditingGameId(null)}
+          onDelete={() => {}}
+          // ✅ pass through to satisfy GameRowProps and enable modal reset
+          onResetRecharge={handleResetRecharge}
+        />
+      )}
     </div>
   );
 };

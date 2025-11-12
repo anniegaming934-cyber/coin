@@ -1,11 +1,10 @@
 // src/components/UserHistory.tsx
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo, type FC } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { apiClient } from "../apiConfig";
 import { DataTable } from "../DataTable";
-// ✅ same folder
 
-interface UserHistoryProps {
+export interface UserHistoryProps {
   userId: string;
 }
 
@@ -50,7 +49,7 @@ const fmtAmount = (n: number) =>
     maximumFractionDigits: 2,
   });
 
-const UserHistory: FC<UserAdminTableProps> = ({ onViewHistory }) => {
+const UserHistory: FC<UserHistoryProps> = ({ userId }) => {
   const [userName, setUserName] = useState<string>("");
   const [userEmail, setUserEmail] = useState<string>("");
   const [totals, setTotals] = useState<UserHistoryTotals | null>(null);
@@ -62,25 +61,22 @@ const UserHistory: FC<UserAdminTableProps> = ({ onViewHistory }) => {
       setLoading(true);
       try {
         const res = await apiClient.get<UserHistoryResponse>(
-          `/api/admin/users/${userId}/history` // ✅ added /api
+          `/api/admin/users/${userId}/history`
         );
-
-        console.log("UserHistory response:", res.data); // ✅ debug
-
         setUserName(res.data.user.username);
         setUserEmail(res.data.user.email || "");
         setTotals(res.data.totals);
         setHistory(res.data.history);
       } catch (err) {
         console.error("Failed to load user history", err);
+        setTotals(null);
+        setHistory([]);
       } finally {
         setLoading(false);
       }
     };
 
-    if (userId) {
-      loadHistory();
-    }
+    if (userId) loadHistory();
   }, [userId]);
 
   const columns = useMemo<ColumnDef<UserHistoryItem, any>[]>(
