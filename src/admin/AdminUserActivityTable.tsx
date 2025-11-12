@@ -89,7 +89,7 @@ const AdminUserActivityTable: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      const { data } = await apiClient.get(`${API_BASE}/?username=admin`);
+      const { data } = await apiClient.get(`${API_BASE}/?username`);
 
       const map = new Map<string, UserRow>();
 

@@ -118,7 +118,7 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
 
     try {
       setLoading(true);
-      await axios.put(`${apiBase}/payments/${id}`, {
+      await apiClient.put(`${apiBase}/payments/${id}`, {
         amount: amt,
         method: editMethod,
         note: editNote.trim() || null,

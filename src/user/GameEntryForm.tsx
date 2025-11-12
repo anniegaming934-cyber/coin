@@ -3,6 +3,9 @@ import { apiClient } from "../apiConfig";
 import { type EntryType } from "./RecentEntriesTable";
 
 const types: EntryType[] = ["freeplay", "deposit", "redeem"];
+const methods = ["cashapp", "paypal", "chime", "venmo"] as const;
+type PaymentMethod = (typeof methods)[number];
+
 const GAMES_API_PATH = "/api/games"; // GET /api/games?q=...
 
 function useDebounce<T>(value: T, delay = 250) {
@@ -14,7 +17,6 @@ function useDebounce<T>(value: T, delay = 250) {
   return debounced;
 }
 
-// 🔹 helper: returns today's date in yyyy-mm-dd
 const getToday = () => {
   const now = new Date();
   const yyyy = now.getFullYear();
@@ -25,22 +27,27 @@ const getToday = () => {
 
 const GameEntryForm: React.FC = () => {
   const [type, setType] = useState<EntryType>("deposit");
+  const [isCashIn, setIsCashIn] = useState(true); // switch maps to deposit/redeem
+  const [method, setMethod] = useState<PaymentMethod>("cashapp");
+
   const [playerName, setPlayerName] = useState("");
-  const [gameName, setGameName] = useState("");
   const [amount, setAmount] = useState<number | "">("");
   const [note, setNote] = useState("");
-  const [date, setDate] = useState(getToday()); // ✅ default to today
+  const [date, setDate] = useState(getToday());
   const [bonusRate, setBonusRate] = useState<number>(10);
 
-  // ---------- names cache per type ----------
+  // ===== multiple game selection =====
+  const [selectedGames, setSelectedGames] = useState<string[]>([]); // chips
+  const [gameQuery, setGameQuery] = useState(""); // current typing
+
+  // cache names per type
   const [namesByType, setNamesByType] = useState<Record<EntryType, string[]>>({
     freeplay: [],
     deposit: [],
     redeem: [],
   });
 
-  // ---------- Autocomplete state ----------
-  const [gameQuery, setGameQuery] = useState("");
+  // autocomplete
   const debouncedGameQuery = useDebounce(gameQuery, 250);
   const [gameOptions, setGameOptions] = useState<string[]>([]);
   const [gamesOpen, setGamesOpen] = useState(false);
@@ -50,7 +57,20 @@ const GameEntryForm: React.FC = () => {
   const gameInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // ---------- Prefetch names for the active type ----------
+  // keep switch ↔ type in sync
+  useEffect(() => {
+    if (type === "freeplay") return; // show disabled, but do not flip state
+    setIsCashIn(type === "deposit");
+  }, [type]);
+
+  function setFlow(cashin: boolean) {
+    setIsCashIn(cashin);
+    if (type !== "freeplay") {
+      setType(cashin ? "deposit" : "redeem");
+    }
+  }
+
+  // Prefetch names by type
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -67,30 +87,26 @@ const GameEntryForm: React.FC = () => {
         const unique = Array.from(new Set(list)).sort((a, b) =>
           a.localeCompare(b)
         );
-        if (!cancelled) {
-          setNamesByType((old) => ({ ...old, [type]: unique }));
-        }
-      } catch {
-        // ignore prefetch errors
-      }
+        if (!cancelled) setNamesByType((old) => ({ ...old, [type]: unique }));
+      } catch {}
     })();
     return () => {
       cancelled = true;
     };
   }, [type, namesByType]);
 
-  // ---------- Fetch suggestions on typing ----------
+  // Suggestions on typing
   useEffect(() => {
     const q = debouncedGameQuery.trim();
-
     if (!q) {
       const cached = namesByType[type] || [];
-      setGameOptions(cached.slice(0, 10));
-      setGamesOpen(cached.length > 0);
-      setHighlightIndex(cached.length ? 0 : -1);
+      // filter out already selected
+      const available = cached.filter((n) => !selectedGames.includes(n));
+      setGameOptions(available.slice(0, 10));
+      setGamesOpen(available.length > 0);
+      setHighlightIndex(available.length ? 0 : -1);
       return;
     }
-
     let cancelled = false;
     (async () => {
       setGamesLoading(true);
@@ -99,16 +115,20 @@ const GameEntryForm: React.FC = () => {
         const { data } = await apiClient.get<string[] | any[]>(GAMES_API_PATH, {
           params: { q, type },
         });
-
         let names: string[] = [];
         if (Array.isArray(data)) {
-          if (typeof data[0] === "string") names = data;
-          else names = (data as any[]).map((g) => g.name).filter(Boolean);
+          names =
+            typeof data[0] === "string"
+              ? (data as string[])
+              : (data as any[]).map((g) => g.name).filter(Boolean);
         }
-
         const local = namesByType[type] || [];
         const union = Array.from(new Set([...names, ...local]))
-          .filter((n) => n.toLowerCase().includes(q.toLowerCase()))
+          .filter(
+            (n) =>
+              n.toLowerCase().includes(q.toLowerCase()) &&
+              !selectedGames.includes(n)
+          )
           .slice(0, 10);
 
         if (!cancelled) {
@@ -117,11 +137,15 @@ const GameEntryForm: React.FC = () => {
           setHighlightIndex(union.length ? 0 : -1);
         }
       } catch {
-        const local = (namesByType[type] || []).filter((n) =>
-          n.toLowerCase().includes(q.toLowerCase())
-        );
+        const local = (namesByType[type] || [])
+          .filter(
+            (n) =>
+              n.toLowerCase().includes(q.toLowerCase()) &&
+              !selectedGames.includes(n)
+          )
+          .slice(0, 10);
         if (!cancelled) {
-          setGameOptions(local.slice(0, 10));
+          setGameOptions(local);
           setGamesOpen(local.length > 0);
           setHighlightIndex(local.length ? 0 : -1);
         }
@@ -129,13 +153,12 @@ const GameEntryForm: React.FC = () => {
         if (!cancelled) setGamesLoading(false);
       }
     })();
-
     return () => {
       cancelled = true;
     };
-  }, [debouncedGameQuery, type, namesByType]);
+  }, [debouncedGameQuery, type, namesByType, selectedGames]);
 
-  // click-outside to close the dropdown
+  // click-outside to close
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
       if (
@@ -152,7 +175,7 @@ const GameEntryForm: React.FC = () => {
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
-  // ----- amounts / bonus -----
+  // amounts / bonus
   const baseAmount = amount === "" ? 0 : Number(amount);
   const bonus = useMemo(() => {
     if (Number.isNaN(baseAmount) || baseAmount <= 0) return 0;
@@ -167,24 +190,44 @@ const GameEntryForm: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
 
+  const needsMethod = type === "deposit" || type === "redeem";
   const canSubmit = useMemo(() => {
-    return (
-      !!type &&
-      !!playerName.trim() &&
-      amount !== "" &&
-      !Number.isNaN(Number(amount)) &&
-      Number(amount) > 0
+    if (!playerName.trim()) return false;
+    if (amount === "" || Number.isNaN(Number(amount)) || Number(amount) <= 0)
+      return false;
+    if (needsMethod && !method) return false;
+    // require at least one game: either selected chips or typed value
+    if (selectedGames.length === 0 && !gameQuery.trim()) return false;
+    return true;
+  }, [playerName, amount, needsMethod, method, selectedGames, gameQuery]);
+
+  // ===== token helpers =====
+  function addGameToken(raw: string) {
+    const name = raw.trim();
+    if (!name) return;
+    if (selectedGames.includes(name)) return;
+    setSelectedGames((prev) =>
+      [...prev, name].sort((a, b) => a.localeCompare(b))
     );
-  }, [type, playerName, amount]);
+    setGameQuery("");
+  }
+
+  function removeGameToken(name: string) {
+    setSelectedGames((prev) => prev.filter((g) => g !== name));
+  }
 
   function chooseGame(name: string) {
-    setGameName(name);
-    setGameQuery(name);
+    addGameToken(name);
     setGamesOpen(false);
     setHighlightIndex(-1);
   }
 
   function onGameKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addGameToken(gameQuery);
+      return;
+    }
     if (!gamesOpen || gameOptions.length === 0) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -194,14 +237,11 @@ const GameEntryForm: React.FC = () => {
       setHighlightIndex(
         (i) => (i - 1 + gameOptions.length) % gameOptions.length
       );
-    } else if (e.key === "Enter") {
-      if (highlightIndex >= 0) {
+    } else if (e.key === "Tab") {
+      if (highlightIndex >= 0 && gameOptions[highlightIndex]) {
         e.preventDefault();
         chooseGame(gameOptions[highlightIndex]);
       }
-    } else if (e.key === "Escape") {
-      setGamesOpen(false);
-      setHighlightIndex(-1);
     }
   }
 
@@ -209,31 +249,41 @@ const GameEntryForm: React.FC = () => {
     e.preventDefault();
     setError(null);
     setOk(null);
-
     if (!canSubmit) {
       setError("Please fill all required fields correctly.");
       return;
     }
-
     setSaving(true);
     try {
-      await apiClient.post("api/game-entries", {
-        type,
-        playerName: playerName.trim(),
-        gameName: gameName.trim(),
-        amount: Number(amountFinal),
-        note: note.trim(),
-        amountBase: Number(baseAmount),
-        bonusRate: type === "deposit" ? Number(bonusRate) : 0,
-        bonusAmount: Number(bonus),
-        amountFinal: Number(amountFinal),
-        date: date ? new Date(date).toISOString() : undefined,
-      });
+      // final list of game names to submit
+      const gamesToSubmit =
+        selectedGames.length > 0
+          ? selectedGames
+          : [gameQuery.trim()].filter(Boolean);
 
-      // ✅ add game name to local cache
-      if (gameName.trim()) {
+      // batch POST one entry per game
+      await Promise.all(
+        gamesToSubmit.map((gname) =>
+          apiClient.post("api/game-entries", {
+            type,
+            method: needsMethod ? method : undefined,
+            playerName: playerName.trim(),
+            gameName: gname,
+            amount: Number(amountFinal),
+            note: note.trim(),
+            amountBase: Number(baseAmount),
+            bonusRate: type === "deposit" ? Number(bonusRate) : 0,
+            bonusAmount: Number(bonus),
+            amountFinal: Number(amountFinal),
+            date: date ? new Date(date).toISOString() : undefined,
+          })
+        )
+      );
+
+      // add to cache for current type
+      if (gamesToSubmit.length) {
         setNamesByType((old) => {
-          const set = new Set([...(old[type] || []), gameName.trim()]);
+          const set = new Set([...(old[type] || []), ...gamesToSubmit]);
           return {
             ...old,
             [type]: Array.from(set).sort((a, b) => a.localeCompare(b)),
@@ -241,16 +291,22 @@ const GameEntryForm: React.FC = () => {
         });
       }
 
-      // ✅ reset form (and date = today)
+      // reset form
       setType("deposit");
+      setFlow(true);
+      setMethod("cashapp");
       setPlayerName("");
-      setGameName("");
+      setSelectedGames([]);
       setGameQuery("");
       setAmount("");
       setNote("");
-      setDate(getToday()); // reset to today's date
+      setDate(getToday());
       setBonusRate(10);
-      setOk("Saved!");
+      setOk(
+        `Saved ${gamesToSubmit.length} entr${
+          gamesToSubmit.length > 1 ? "ies" : "y"
+        }!`
+      );
     } catch (err: any) {
       console.error("Save failed:", err?.response?.data || err.message);
       setError(err?.response?.data?.message || "Save failed");
@@ -273,7 +329,11 @@ const GameEntryForm: React.FC = () => {
             <label className="block text-sm font-medium mb-1">Type</label>
             <select
               value={type}
-              onChange={(e) => setType(e.target.value as EntryType)}
+              onChange={(e) => {
+                const v = e.target.value as EntryType;
+                setType(v);
+                if (v !== "freeplay") setFlow(v === "deposit");
+              }}
               className="w-full rounded-lg border px-3 py-2"
               required
             >
@@ -283,6 +343,73 @@ const GameEntryForm: React.FC = () => {
                 </option>
               ))}
             </select>
+          </div>
+
+          {/* Method (only for money moves) */}
+          {type !== "freeplay" && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Method</label>
+              <select
+                value={method}
+                onChange={(e) => setMethod(e.target.value as PaymentMethod)}
+                className="w-full rounded-lg border px-3 py-2"
+                required
+              >
+                {methods.map((m) => (
+                  <option key={m} value={m}>
+                    {m.charAt(0).toUpperCase() + m.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Cash Flow on the RIGHT side (always visible, disabled on freeplay) */}
+          <div className="md:col-span-2 flex items-end md:justify-end">
+            <div className="w-full md:w-auto">
+              <label className="block text-sm font-medium mb-1">
+                Cash Flow
+              </label>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setFlow(true)}
+                  disabled={type === "freeplay"}
+                  className={`px-3 py-2 rounded-lg border text-sm font-semibold transition
+                    ${
+                      isCashIn
+                        ? "bg-emerald-500 text-white border-emerald-600"
+                        : "bg-white text-emerald-600 border-emerald-300"
+                    }
+                    ${
+                      type === "freeplay" ? "opacity-50 cursor-not-allowed" : ""
+                    }
+                  `}
+                >
+                  Cash In
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFlow(false)}
+                  disabled={type === "freeplay"}
+                  className={`px-3 py-2 rounded-lg border text-sm font-semibold transition
+                    ${
+                      !isCashIn
+                        ? "bg-red-500 text-white border-red-600"
+                        : "bg-white text-red-600 border-red-300"
+                    }
+                    ${
+                      type === "freeplay" ? "opacity-50 cursor-not-allowed" : ""
+                    }
+                  `}
+                >
+                  Cash Out
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-500 mt-1">
+                Cash In = Deposit · Cash Out = Redeem
+              </p>
+            </div>
           </div>
 
           {/* Player Name */}
@@ -299,59 +426,89 @@ const GameEntryForm: React.FC = () => {
             />
           </div>
 
-          {/* Game Name (with autocomplete) */}
-          <div className="relative" ref={dropdownRef}>
-            <label className="block text-sm font-medium mb-1">Game Name</label>
-            <input
-              ref={gameInputRef}
-              value={gameQuery}
-              onChange={(e) => {
-                setGameQuery(e.target.value);
-                setGameName(e.target.value);
-                setGamesOpen(true);
-              }}
-              onFocus={() => {
-                const cached = namesByType[type] || [];
-                setGameOptions(cached.slice(0, 10));
-                setGamesOpen(cached.length > 0);
-              }}
-              onKeyDown={onGameKeyDown}
-              placeholder="e.g. Rummy"
-              className="w-full rounded-lg border px-3 py-2"
-            />
-            {/* Dropdown */}
-            {gamesOpen && (
-              <div className="absolute z-20 mt-1 w-full rounded-lg border bg-white shadow-lg max-h-60 overflow-auto">
-                {gamesLoading && (
-                  <div className="px-3 py-2 text-sm text-gray-500">
-                    Loading…
-                  </div>
-                )}
-                {gamesError && (
-                  <div className="px-3 py-2 text-sm text-red-600">
-                    {gamesError}
-                  </div>
-                )}
-                {!gamesLoading &&
-                  !gamesError &&
-                  gameOptions.map((opt, i) => (
+          {/* Game Names (chips + autocomplete) */}
+          <div className="md:col-span-3" ref={dropdownRef}>
+            <label className="block text-sm font-medium mb-1">
+              Game Name(s)
+            </label>
+
+            {/* Chips */}
+            {selectedGames.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {selectedGames.map((g) => (
+                  <span
+                    key={g}
+                    className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-full text-xs bg-slate-100 border border-slate-200"
+                  >
+                    {g}
                     <button
                       type="button"
-                      key={opt + i}
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 ${
-                        i === highlightIndex ? "bg-gray-100" : ""
-                      }`}
-                      onMouseEnter={() => setHighlightIndex(i)}
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        chooseGame(opt);
-                      }}
+                      onClick={() => removeGameToken(g)}
+                      className="text-slate-500 hover:text-slate-700"
+                      aria-label={`Remove ${g}`}
                     >
-                      {opt}
+                      ✕
                     </button>
-                  ))}
+                  </span>
+                ))}
               </div>
             )}
+
+            {/* Input */}
+            <div className="relative">
+              <input
+                ref={gameInputRef}
+                value={gameQuery}
+                onChange={(e) => {
+                  setGameQuery(e.target.value);
+                  setGamesOpen(true);
+                }}
+                onFocus={() => {
+                  const cached = (namesByType[type] || []).filter(
+                    (n) => !selectedGames.includes(n)
+                  );
+                  setGameOptions(cached.slice(0, 10));
+                  setGamesOpen(cached.length > 0);
+                }}
+                onKeyDown={onGameKeyDown}
+                placeholder="Type and press Enter or comma to add"
+                className="w-full rounded-lg border px-3 py-2"
+              />
+
+              {/* Dropdown */}
+              {gamesOpen && (
+                <div className="absolute z-20 mt-1 w-full rounded-lg border bg-white shadow-lg max-h-60 overflow-auto">
+                  {gamesLoading && (
+                    <div className="px-3 py-2 text-sm text-gray-500">
+                      Loading…
+                    </div>
+                  )}
+                  {gamesError && (
+                    <div className="px-3 py-2 text-sm text-red-600">
+                      {gamesError}
+                    </div>
+                  )}
+                  {!gamesLoading &&
+                    !gamesError &&
+                    gameOptions.map((opt, i) => (
+                      <button
+                        type="button"
+                        key={opt + i}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 ${
+                          i === highlightIndex ? "bg-gray-100" : ""
+                        }`}
+                        onMouseEnter={() => setHighlightIndex(i)}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          chooseGame(opt);
+                        }}
+                      >
+                        {opt}
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Amount */}
@@ -371,7 +528,7 @@ const GameEntryForm: React.FC = () => {
             />
           </div>
 
-          {/* Bonus fields only for deposit */}
+          {/* Bonus only for deposit */}
           {type === "deposit" && (
             <>
               <div>
@@ -412,7 +569,7 @@ const GameEntryForm: React.FC = () => {
             </>
           )}
 
-          {/* Date (defaults to today) */}
+          {/* Date */}
           <div>
             <label className="block text-sm font-medium mb-1">Date</label>
             <input

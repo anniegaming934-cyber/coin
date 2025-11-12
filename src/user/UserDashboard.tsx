@@ -5,7 +5,7 @@ import { apiClient } from "../apiConfig";
 import Sidebar, { type SidebarSection } from "../admin/Sidebar";
 import UserSessionBar from "./UserSessionBar";
 import PaymentForm, { type PaymentMethod, type TxType } from "./Paymentform";
-import PaymentHistory from "../admin/PaymentHistory";
+import PaymentHistory from "./PaymentHistory";
 import UserTable from "./UserTable";
 import UserCharts from "./UserCharts";
 

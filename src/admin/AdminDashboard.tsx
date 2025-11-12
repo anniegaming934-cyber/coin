@@ -5,7 +5,7 @@ import { apiClient } from "../apiConfig";
 import GameRow from "./Gamerow"; // used ONLY for the modal when editing
 import AddGameForm from "./Addgame";
 import PaymentForm, { type PaymentFormProps } from "../user/Paymentform";
-import PaymentHistory from "./PaymentHistory";
+import PaymentHistory from "../user/PaymentHistory";
 import Sidebar, { type SidebarSection } from "./Sidebar";
 import FacebookLeadForm from "../FacebookLeadForm";
 import UserAdminTable from "./UserAdminTable";
@@ -25,9 +25,9 @@ import {
 interface Game {
   id: number;
   name: string;
-  coinsEarned: number;     // redeem in your net calc
-  coinsSpent: number;      // freeplay+deposit in your net calc
-  coinsRecharged: number;  // editable
+  coinsEarned: number; // redeem in your net calc
+  coinsSpent: number; // freeplay+deposit in your net calc
+  coinsRecharged: number; // editable
   lastRechargeDate?: string;
 }
 
@@ -163,7 +163,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
           coinsRecharged: g.coinsRecharged + recharge,
           lastRechargeDate:
             recharge > 0
-              ? (rechargeDateISO || new Date().toISOString().slice(0, 10))
+              ? rechargeDateISO || new Date().toISOString().slice(0, 10)
               : g.lastRechargeDate,
         };
 
