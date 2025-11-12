@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Info,
   UserRoundPlus,
+  FileUser,
 } from "lucide-react";
 
 export type SidebarSection =
@@ -54,6 +55,7 @@ const Sidebar: FC<SidebarProps> = ({
       { id: "games", label: "Games", icon: Gamepad2 },
       { id: "charts", label: "Charts", icon: BarChart2 },
       { id: "paymentsHistory", label: "Payment History", icon: Wallet },
+      { id: "depositRecord", label: "Deposit Record", icon: FileUser},
       { id: "settings", label: "Settings", icon: Settings },
     ];
 

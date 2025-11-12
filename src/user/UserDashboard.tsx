@@ -13,6 +13,8 @@ import UserTable from "./UserTable";
 import UserCharts from "./UserCharts";
 
 import type { Game } from "../admin/Gamerow";
+import GameEntryForm from "./GameEntryForm";
+import RecentEntriesTable from "./RecentEntriesTable";
 
 // -----------------------------
 // Constants
@@ -142,6 +144,9 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
           {activeSection === "overview" && (
             <>
               <div className="grid grid-cols-1 gap-6 mb-8">
+                <GameEntryForm />
+              </div>
+              <div className="grid grid-cols-1 gap-6 mb-8">
                 <PaymentForm
                   initialTotals={paymentTotals}
                   onTotalsChange={(t) => setPaymentTotals(t)}
@@ -149,7 +154,7 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
                   onReset={onReset}
                 />
               </div>
-              <UserTable mode="user" />
+              <div className="grid grid-cols-1 gap-6 mb-8"></div>
             </>
           )}
 
