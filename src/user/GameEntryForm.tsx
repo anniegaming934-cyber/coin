@@ -31,7 +31,7 @@ const GameEntryForm: React.FC = () => {
   const [isCashIn, setIsCashIn] = useState(true); // deposit vs redeem
   const [method, setMethod] = useState<PaymentMethod>("cashapp");
 
-  // 🔐 username comes from backend login and is not editable
+  // 🔐 username: loaded from localStorage
   const [username, setUsername] = useState("");
 
   const [playerName, setPlayerName] = useState("");
@@ -62,34 +62,13 @@ const GameEntryForm: React.FC = () => {
   const gameInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // 🔐 Load username from backend: GET /api/auth/login
+  // 🔐 Load username from localStorage ONLY
   useEffect(() => {
-    async function fetchUser() {
-      try {
-        const { data } = await apiClient.get("/api/logins", {
-          params: { username: "" }, // optional filter
-        });
-        if (Array.isArray(data) && data.length > 0) {
-          const username = data[0].username;
-
-          setUsername(username);
-          console.log("username", username);
-
-          localStorage.setItem("username", username);
-        } else {
-          // fallback to localStorage
-          const stored = localStorage.getItem("username");
-          if (stored) setUsername(stored);
-        }
-      } catch (err) {
-        console.error("Failed to load logged-in user:", err);
-
-        const stored = localStorage.getItem("username");
-        if (stored) setUsername(stored);
-      }
+    const stored = localStorage.getItem("username");
+    if (stored) {
+      setUsername(stored);
+      console.log("Loaded username from localStorage:", stored);
     }
-
-    fetchUser();
   }, []);
 
   // keep switch ↔ type in sync
@@ -252,7 +231,9 @@ const GameEntryForm: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
 
-  const needsMethod = true;
+  // ✅ method only required for deposit/redeem
+  const needsMethod = type !== "freeplay";
+
   const canSubmit = useMemo(() => {
     if (!username.trim()) return false; // must be logged in
     if (!playerName.trim()) return false;
@@ -339,14 +320,19 @@ const GameEntryForm: React.FC = () => {
     e.preventDefault();
     setError(null);
     setOk(null);
+
     if (!canSubmit) {
       setError("Please fill all required fields correctly.");
       return;
     }
+
     setSaving(true);
     try {
+      // snapshot of current games
+      const gamesToSave = [...selectedGames];
+
       await Promise.all(
-        selectedGames.map((gname) => {
+        gamesToSave.map((gname) => {
           const calc = perGameCalc[gname] || {
             base: 0,
             bonus: 0,
@@ -356,20 +342,29 @@ const GameEntryForm: React.FC = () => {
           const bonus = calc.bonus;
           const finalAmt = calc.finalAmt;
 
+          // ✅ payload aligned with backend
           return apiClient.post("/api/game-entries", {
-            type,
-            method,
-            username: username.trim(), // from backend login
+            type, // "freeplay" | "deposit" | "redeem"
+            method: needsMethod ? method : undefined, // only for deposit/redeem
+
+            username: username.trim(),
             createdBy: username.trim(),
+
             playerName: playerName.trim(),
             gameName: gname,
-            amount: Number(finalAmt),
-            note: note.trim(),
+
             amountBase: Number(base),
             bonusRate: type === "deposit" ? Number(bonusRate) : 0,
-            bonusAmount: Number(bonus),
+            bonusAmount: type === "deposit" ? Number(bonus) : 0,
             amountFinal: Number(finalAmt),
-            date: date ? new Date(date).toISOString() : undefined,
+
+            // optional raw amount if you want (backend supports it)
+            amount: Number(finalAmt),
+
+            note: note.trim() || undefined,
+            // backend normalizeDateString handles "YYYY-MM-DD"
+            date: date || undefined,
+
             totalPaid: type === "redeem" ? Number(totalPaid) : undefined,
             totalCashout: type === "redeem" ? Number(totalCashout) : undefined,
             remainingPay: type === "redeem" ? Number(remainingPay) : undefined,
@@ -377,9 +372,9 @@ const GameEntryForm: React.FC = () => {
         })
       );
 
-      if (selectedGames.length) {
+      if (gamesToSave.length) {
         setNamesByType((old) => {
-          const set = new Set([...(old[type] || []), ...selectedGames]);
+          const set = new Set([...(old[type] || []), ...gamesToSave]);
           return {
             ...old,
             [type]: Array.from(set).sort((a, b) => a.localeCompare(b)),
@@ -399,14 +394,19 @@ const GameEntryForm: React.FC = () => {
       setDate(getToday());
       setBonusRate(10);
       setTotalPaidInput("");
+
       setOk(
-        `Saved ${selectedGames.length} entr${
-          selectedGames.length > 1 ? "ies" : "y"
+        `Saved ${gamesToSave.length} entr${
+          gamesToSave.length > 1 ? "ies" : "y"
         }!`
       );
     } catch (err: any) {
-      console.error("Save failed:", err?.response?.data || err.message);
-      setError(err?.response?.data?.message || "Save failed");
+      console.error("Save failed:", err?.response?.data || err.message || err);
+      setError(
+        err?.response?.data?.message ||
+          err?.message ||
+          "Save failed. Please try again."
+      );
     } finally {
       setSaving(false);
     }
@@ -421,7 +421,7 @@ const GameEntryForm: React.FC = () => {
           onSubmit={handleSubmit}
           className="grid grid-cols-1 md:grid-cols-4 gap-4"
         >
-          {/* Username (from backend, disabled) */}
+          {/* Username (from localStorage, disabled) */}
           <div>
             <label className="block text-sm font-medium mb-1">Username</label>
             <input

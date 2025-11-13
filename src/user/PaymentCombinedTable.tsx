@@ -9,6 +9,7 @@ type Method = "cashapp" | "paypal" | "chime" | string;
 
 export interface GameEntryRow {
   _id: string;
+  username?: string; // 👈 extra safety: track owner of row
   type: EntryType;
   method?: Method;
   playerName?: string;
@@ -61,21 +62,23 @@ const PaymentCombinedTable: React.FC = () => {
     const load = async () => {
       setLoading(true);
       try {
-        // 🔗 Only fetch entries for this username
-        const res = await apiClient.get("/api/game-entries?username=", {
+        // 🔗 Only fetch entries for this username (backend also filters)
+        const res = await apiClient.get("/api/game-entries", {
           params: { username },
         });
 
-        const data = res.data || [];
+        const data = res?.data || [];
 
         const mapped: GameEntryRow[] = data.map((e: any) => {
-          const amountBase = Number(e.amountBase ?? 0);
+          const amountBase = Number(e.amountBase ?? e.amount ?? 0);
           const bonus = Number(e.bonusAmount ?? 0);
-          // prefer amountFinal from backend; fallback to base+bonus
-          const finalAmount = Number(e.amountFinal ?? amountBase + bonus);
+          const finalAmount = Number(
+            e.amountFinal ?? amountBase + (Number.isFinite(bonus) ? bonus : 0)
+          );
 
           return {
             _id: e._id,
+            username: e.username || "", // 👈 keep owner info on the row
             type: e.type as EntryType,
             method: e.method,
             playerName: e.playerName || "",
@@ -97,33 +100,37 @@ const PaymentCombinedTable: React.FC = () => {
     };
 
     load();
-  }, [username]); // 👈 refetch if username changes
+  }, [username]);
 
   const filteredRows = useMemo(
     () =>
-      rows.filter((row) => {
-        const search = searchTerm.trim().toLowerCase();
+      rows
+        // 🔒 extra safety: NEVER show rows from another username
+        // (old rows without username will be hidden)
+        .filter((row) => row.username === username)
+        .filter((row) => {
+          const search = searchTerm.trim().toLowerCase();
 
-        if (search) {
-          const haystack = [
-            row.playerName || "",
-            row.method || "",
-            row.type || "",
-          ]
-            .join(" ")
-            .toLowerCase();
-          if (!haystack.includes(search)) return false;
-        }
+          if (search) {
+            const haystack = [
+              row.playerName || "",
+              row.method || "",
+              row.type || "",
+            ]
+              .join(" ")
+              .toLowerCase();
+            if (!haystack.includes(search)) return false;
+          }
 
-        if (typeFilter && row.type !== typeFilter) return false;
-        if (methodFilter && row.method !== methodFilter) return false;
+          if (typeFilter && row.type !== typeFilter) return false;
+          if (methodFilter && row.method !== methodFilter) return false;
 
-        if (dateFrom && row.date && row.date < dateFrom) return false;
-        if (dateTo && row.date && row.date > dateTo) return false;
+          if (dateFrom && row.date && row.date < dateFrom) return false;
+          if (dateTo && row.date && row.date > dateTo) return false;
 
-        return true;
-      }),
-    [rows, searchTerm, typeFilter, methodFilter, dateFrom, dateTo]
+          return true;
+        }),
+    [rows, username, searchTerm, typeFilter, methodFilter, dateFrom, dateTo]
   );
 
   const columns = useMemo<ColumnDef<GameEntryRow>[]>(
