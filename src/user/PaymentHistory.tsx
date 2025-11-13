@@ -16,7 +16,8 @@ interface Payment {
   date: string; // "YYYY-MM-DD"
   createdAt: string; // ISO
   txType?: TxType;
-  status?: PaymentStatus; // 👈 NEW
+  status?: PaymentStatus;
+  paidAmount?: number; // 👈 NEW: how much of this cashout is already paid
 }
 
 interface PaymentHistoryProps {
@@ -57,7 +58,8 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
   const [editMethod, setEditMethod] = useState<PaymentMethod>("cashapp");
   const [editNote, setEditNote] = useState<string>("");
   const [editTxType, setEditTxType] = useState<TxType>("cashin");
-  const [editStatus, setEditStatus] = useState<PaymentStatus>("pending"); // 👈 NEW
+  const [editStatus, setEditStatus] = useState<PaymentStatus>("pending");
+  const [editPaidAmount, setEditPaidAmount] = useState<string>("0"); // 👈 NEW
 
   // delete modal state
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -70,12 +72,9 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
       setLoading(true);
       setError(null);
 
-      const { data } = await apiClient.get<Payment[]>(
-        `${apiBase}/game-entries`,
-        {
-          params: { date },
-        }
-      );
+      const { data } = await apiClient.get<Payment[]>(`${apiBase}/game-entries`, {
+        params: { date },
+      });
 
       if (!Array.isArray(data)) {
         throw new Error("Unexpected response for payments");
@@ -107,6 +106,9 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
     setEditNote(p.note ?? "");
     setEditTxType(type);
     setEditStatus(status);
+
+    const paid = p.paidAmount ?? (status === "paid" ? p.amount : 0);
+    setEditPaidAmount(String(paid));
   };
 
   const cancelEdit = () => {
@@ -116,24 +118,36 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
     setEditNote("");
     setEditTxType("cashin");
     setEditStatus("pending");
+    setEditPaidAmount("0");
   };
 
   const saveEdit = async (id: string) => {
     const amt = Number(editAmount);
+    const paidAmt = Number(editPaidAmount);
+
     if (!Number.isFinite(amt) || amt <= 0) {
-      alert("Enter a valid amount.");
+      alert("Enter a valid total amount.");
+      return;
+    }
+    if (paidAmt < 0) {
+      alert("Paid amount cannot be negative.");
+      return;
+    }
+    if (paidAmt > amt) {
+      alert("Paid amount cannot be more than total.");
       return;
     }
 
     try {
       setLoading(true);
-      await apiClient.put(`${apiBase}/payments/${id}`, {
+      await apiClient.put(`${apiBase}/game-entries/${id}`, {
         amount: amt,
         method: editMethod,
         note: editNote.trim() || null,
         date,
         txType: editTxType,
-        status: editStatus, // 👈 send status to backend
+        status: editStatus,
+        paidAmount: paidAmt, // 👈 send to backend
       });
 
       await loadPayments();
@@ -158,7 +172,7 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
 
     try {
       setDeleting(true);
-      await apiClient.delete(`${apiBase}/payments/${deleteId}`); // 👈 use apiClient
+      await apiClient.delete(`${apiBase}/game-entries/${deleteId}`);
       await loadPayments();
       setShowDeleteModal(false);
       setDeleteId(null);
@@ -197,16 +211,16 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
     0
   );
 
-  const totalPaid = cashoutPayments
-    .filter((p) => p.status === "paid")
-    .reduce((sum, p) => sum + (p.amount || 0), 0);
+  const totalPaid = cashoutPayments.reduce((sum, p) => {
+    const status: PaymentStatus = p.status ?? "pending";
+    const paidForRow = p.paidAmount ?? (status === "paid" ? p.amount : 0);
+    return sum + (paidForRow || 0);
+  }, 0);
 
   const remainingPay = Math.max(totalCashOut - totalPaid, 0);
 
-  // status badge helper
   const renderStatusBadge = (status: PaymentStatus | undefined) => {
     const s: PaymentStatus = status ?? "pending";
-
     const base =
       "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border";
 
@@ -235,7 +249,6 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
         </span>
       );
     }
-    // pending
     return (
       <span
         className={`${base} bg-yellow-50 text-yellow-700 border-yellow-100`}
@@ -337,102 +350,212 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
 
         {!loading && !error && filteredPayments.length > 0 && (
           <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                  <th className="px-3 py-2">Type</th>
-                  <th className="px-3 py-2">Method</th>
-                  <th className="px-3 py-2">Amount</th>
-                  {/* 👇 change header label if viewing cash out */}
-                  <th className="px-3 py-2">
-                    {isCashOutView ? "Name / Note" : "Note"}
-                  </th>
-                  {/* NEW: Status column */}
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Time</th>
-                  <th className="px-3 py-2 text-right">Actions</th>
-                </tr>
-              </thead>
+            {isCashOutView ? (
+              /* 🔻 CASHOUT TABLE with Total / Paid / Remaining */
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    <th className="px-3 py-2">Type</th>
+                    <th className="px-3 py-2">Method</th>
+                    <th className="px-3 py-2">Total</th>
+                    <th className="px-3 py-2">Paid</th>
+                    <th className="px-3 py-2">Remaining</th>
+                    <th className="px-3 py-2">Name / Note</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2">Time</th>
+                    <th className="px-3 py-2 text-right">Actions</th>
+                  </tr>
+                </thead>
 
-              <tbody className="divide-y divide-gray-100">
-                {filteredPayments.map((p) => {
-                  const time = fmtTime12h(p.createdAt); // 12h format
-                  const isEditing = editingId === p.id;
-                  const tx = (p.txType ?? "cashin") as TxType;
-                  const isOut = tx === "cashout";
+                <tbody className="divide-y divide-gray-100">
+                  {filteredPayments.map((p) => {
+                    const time = fmtTime12h(p.createdAt);
+                    const isEditing = editingId === p.id;
+                    const tx = (p.txType ?? "cashin") as TxType;
+                    const isOut = tx === "cashout";
+                    const status: PaymentStatus = p.status ?? "pending";
 
-                  if (isEditing) {
+                    const paidForRow =
+                      p.paidAmount ?? (status === "paid" ? p.amount : 0);
+                    const remainingForRow = Math.max(
+                      p.amount - (paidForRow || 0),
+                      0
+                    );
+
+                    if (isEditing) {
+                      return (
+                        <tr key={p.id} className="bg-indigo-50/40">
+                          {/* Type edit */}
+                          <td className="px-3 py-2">
+                            <select
+                              value={editTxType}
+                              onChange={(e) =>
+                                setEditTxType(e.target.value as TxType)
+                              }
+                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+                            >
+                              <option value="cashin">Cash In</option>
+                              <option value="cashout">Cash Out</option>
+                            </select>
+                          </td>
+
+                          {/* Method edit */}
+                          <td className="px-3 py-2">
+                            <select
+                              value={editMethod}
+                              onChange={(e) =>
+                                setEditMethod(e.target.value as PaymentMethod)
+                              }
+                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+                            >
+                              <option value="cashapp">Cash App</option>
+                              <option value="paypal">PayPal</option>
+                              <option value="chime">Chime</option>
+                            </select>
+                          </td>
+
+                          {/* Total amount edit */}
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              value={editAmount}
+                              onChange={(e) => setEditAmount(e.target.value)}
+                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+                              step="0.01"
+                              min={0.01}
+                            />
+                          </td>
+
+                          {/* Paid amount edit */}
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              value={editPaidAmount}
+                              onChange={(e) =>
+                                setEditPaidAmount(e.target.value)
+                              }
+                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+                              step="0.01"
+                              min={0}
+                              max={Number(editAmount) || undefined}
+                            />
+                          </td>
+
+                          {/* Remaining – read-only preview */}
+                          <td className="px-3 py-2 text-orange-600 font-medium">
+                            {fmtUSD(
+                              Math.max(
+                                Number(editAmount || 0) -
+                                  Number(editPaidAmount || 0),
+                                0
+                              )
+                            )}
+                          </td>
+
+                          {/* Name / Note edit */}
+                          <td className="px-3 py-2">
+                            <input
+                              type="text"
+                              value={editNote}
+                              onChange={(e) => setEditNote(e.target.value)}
+                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+                              placeholder="Name / Note"
+                            />
+                          </td>
+
+                          {/* Status edit */}
+                          <td className="px-3 py-2">
+                            <select
+                              value={editStatus}
+                              onChange={(e) =>
+                                setEditStatus(e.target.value as PaymentStatus)
+                              }
+                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+                            >
+                              <option value="pending">Pending</option>
+                              <option value="paying">Paying</option>
+                              <option value="paid">Paid</option>
+                              <option value="remaining">Remaining</option>
+                            </select>
+                          </td>
+
+                          {/* Time */}
+                          <td className="px-3 py-2 text-gray-500">{time}</td>
+
+                          {/* Actions */}
+                          <td className="px-3 py-2">
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => saveEdit(p.id)}
+                                className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+                              >
+                                <Check className="h-3 w-3" />
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEdit}
+                                className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                              >
+                                <X className="h-3 w-3" />
+                                Cancel
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    // normal row
                     return (
-                      <tr key={p.id} className="bg-indigo-50/40">
-                        {/* Type edit */}
+                      <tr key={p.id} className="hover:bg-gray-50">
+                        {/* Type badge */}
                         <td className="px-3 py-2">
-                          <select
-                            value={editTxType}
-                            onChange={(e) =>
-                              setEditTxType(e.target.value as TxType)
-                            }
-                            className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+                          <span
+                            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                              isOut
+                                ? "bg-red-50 text-red-700 border border-red-100"
+                                : "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                            }`}
                           >
-                            <option value="cashin">Cash In</option>
-                            <option value="cashout">Cash Out</option>
-                          </select>
+                            {isOut ? "Cash Out" : "Cash In"}
+                          </span>
                         </td>
 
-                        {/* Method edit */}
+                        {/* Method */}
+                        <td className="px-3 py-2 capitalize">{p.method}</td>
+
+                        {/* Total */}
+                        <td className="px-3 py-2 font-medium text-gray-800">
+                          {fmtUSD(p.amount)}
+                        </td>
+
+                        {/* Paid */}
+                        <td className="px-3 py-2 font-medium text-emerald-600">
+                          {fmtUSD(paidForRow)}
+                        </td>
+
+                        {/* Remaining */}
+                        <td className="px-3 py-2 font-medium text-orange-600">
+                          {fmtUSD(remainingForRow)}
+                        </td>
+
+                        {/* Name / Note */}
+                        <td className="px-3 py-2 text-gray-600">
+                          {p.note ? (
+                            <span>{p.note}</span>
+                          ) : (
+                            <span className="italic text-gray-400">—</span>
+                          )}
+                        </td>
+
+                        {/* Status badge */}
                         <td className="px-3 py-2">
-                          <select
-                            value={editMethod}
-                            onChange={(e) =>
-                              setEditMethod(e.target.value as PaymentMethod)
-                            }
-                            className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
-                          >
-                            <option value="cashapp">Cash App</option>
-                            <option value="paypal">PayPal</option>
-                            <option value="chime">Chime</option>
-                          </select>
+                          {renderStatusBadge(p.status)}
                         </td>
 
-                        {/* Amount edit */}
-                        <td className="px-3 py-2">
-                          <input
-                            type="number"
-                            value={editAmount}
-                            onChange={(e) => setEditAmount(e.target.value)}
-                            className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
-                            step="0.01"
-                            min={0.01}
-                          />
-                        </td>
-
-                        {/* Name / Note edit */}
-                        <td className="px-3 py-2">
-                          <input
-                            type="text"
-                            value={editNote}
-                            onChange={(e) => setEditNote(e.target.value)}
-                            className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
-                            placeholder={isCashOutView ? "Name / Note" : "Note"}
-                          />
-                        </td>
-
-                        {/* Status edit (for both, but mainly useful for cashout) */}
-                        <td className="px-3 py-2">
-                          <select
-                            value={editStatus}
-                            onChange={(e) =>
-                              setEditStatus(e.target.value as PaymentStatus)
-                            }
-                            className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
-                          >
-                            <option value="pending">Pending</option>
-                            <option value="paying">Paying</option>
-                            <option value="paid">Paid</option>
-                            <option value="remaining">Remaining</option>
-                          </select>
-                        </td>
-
-                        {/* Time read-only */}
+                        {/* Time */}
                         <td className="px-3 py-2 text-gray-500">{time}</td>
 
                         {/* Actions */}
@@ -440,103 +563,226 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                           <div className="flex justify-end gap-2">
                             <button
                               type="button"
-                              onClick={() => saveEdit(p.id)}
-                              className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+                              onClick={() => startEdit(p)}
+                              className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
                             >
-                              <Check className="h-3 w-3" />
-                              Save
+                              <Pencil className="h-3 w-3" />
+                              Edit
                             </button>
                             <button
                               type="button"
-                              onClick={cancelEdit}
-                              className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                              onClick={() => openDeleteModal(p)}
+                              className="inline-flex items-center gap-1 rounded-md bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
                             >
-                              <X className="h-3 w-3" />
-                              Cancel
+                              <Trash2 className="h-3 w-3" />
+                              Delete
                             </button>
                           </div>
                         </td>
                       </tr>
                     );
-                  }
+                  })}
+                </tbody>
+              </table>
+            ) : (
+              /* 🔼 NORMAL TABLE for all / cashin views (no Total/Paid/Remaining columns) */
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    <th className="px-3 py-2">Type</th>
+                    <th className="px-3 py-2">Method</th>
+                    <th className="px-3 py-2">Amount</th>
+                    <th className="px-3 py-2">Note</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2">Time</th>
+                    <th className="px-3 py-2 text-right">Actions</th>
+                  </tr>
+                </thead>
 
-                  // normal row
-                  return (
-                    <tr key={p.id} className="hover:bg-gray-50">
-                      {/* Type badge */}
-                      <td className="px-3 py-2">
-                        <span
-                          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                            isOut
-                              ? "bg-red-50 text-red-700 border border-red-100"
-                              : "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                <tbody className="divide-y divide-gray-100">
+                  {filteredPayments.map((p) => {
+                    const time = fmtTime12h(p.createdAt);
+                    const isEditing = editingId === p.id;
+                    const tx = (p.txType ?? "cashin") as TxType;
+                    const isOut = tx === "cashout";
+
+                    if (isEditing) {
+                      return (
+                        <tr key={p.id} className="bg-indigo-50/40">
+                          {/* Type edit */}
+                          <td className="px-3 py-2">
+                            <select
+                              value={editTxType}
+                              onChange={(e) =>
+                                setEditTxType(e.target.value as TxType)
+                              }
+                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+                            >
+                              <option value="cashin">Cash In</option>
+                              <option value="cashout">Cash Out</option>
+                            </select>
+                          </td>
+
+                          {/* Method edit */}
+                          <td className="px-3 py-2">
+                            <select
+                              value={editMethod}
+                              onChange={(e) =>
+                                setEditMethod(e.target.value as PaymentMethod)
+                              }
+                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+                            >
+                              <option value="cashapp">Cash App</option>
+                              <option value="paypal">PayPal</option>
+                              <option value="chime">Chime</option>
+                            </select>
+                          </td>
+
+                          {/* Amount edit */}
+                          <td className="px-3 py-2">
+                            <input
+                              type="number"
+                              value={editAmount}
+                              onChange={(e) => setEditAmount(e.target.value)}
+                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+                              step="0.01"
+                              min={0.01}
+                            />
+                          </td>
+
+                          {/* Note edit */}
+                          <td className="px-3 py-2">
+                            <input
+                              type="text"
+                              value={editNote}
+                              onChange={(e) => setEditNote(e.target.value)}
+                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+                              placeholder="Note"
+                            />
+                          </td>
+
+                          {/* Status edit */}
+                          <td className="px-3 py-2">
+                            <select
+                              value={editStatus}
+                              onChange={(e) =>
+                                setEditStatus(e.target.value as PaymentStatus)
+                              }
+                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
+                            >
+                              <option value="pending">Pending</option>
+                              <option value="paying">Paying</option>
+                              <option value="paid">Paid</option>
+                              <option value="remaining">Remaining</option>
+                            </select>
+                          </td>
+
+                          {/* Time */}
+                          <td className="px-3 py-2 text-gray-500">{time}</td>
+
+                          {/* Actions */}
+                          <td className="px-3 py-2">
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => saveEdit(p.id)}
+                                className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+                              >
+                                <Check className="h-3 w-3" />
+                                Save
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEdit}
+                                className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                              >
+                                <X className="h-3 w-3" />
+                                Cancel
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    // normal row
+                    return (
+                      <tr key={p.id} className="hover:bg-gray-50">
+                        {/* Type badge */}
+                        <td className="px-3 py-2">
+                          <span
+                            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                              isOut
+                                ? "bg-red-50 text-red-700 border border-red-100"
+                                : "bg-emerald-50 text-emerald-700 border border-emerald-100"
+                            }`}
+                          >
+                            {isOut ? "Cash Out" : "Cash In"}
+                          </span>
+                        </td>
+
+                        {/* Method */}
+                        <td className="px-3 py-2 capitalize">{p.method}</td>
+
+                        {/* Amount with + / - */}
+                        <td
+                          className={`px-3 py-2 font-medium ${
+                            isOut ? "text-red-600" : "text-emerald-600"
                           }`}
                         >
-                          {isOut ? "Cash Out" : "Cash In"}
-                        </span>
-                      </td>
+                          {isOut ? "-" : "+"}
+                          {fmtUSD(p.amount)}
+                        </td>
 
-                      {/* Method */}
-                      <td className="px-3 py-2 capitalize">{p.method}</td>
+                        {/* Note */}
+                        <td className="px-3 py-2 text-gray-600">
+                          {p.note ? (
+                            <span>{p.note}</span>
+                          ) : (
+                            <span className="italic text-gray-400">—</span>
+                          )}
+                        </td>
 
-                      {/* Amount with + / - */}
-                      <td
-                        className={`px-3 py-2 font-medium ${
-                          isOut ? "text-red-600" : "text-emerald-600"
-                        }`}
-                      >
-                        {isOut ? "-" : "+"}
-                        {fmtUSD(p.amount)}
-                      </td>
+                        {/* Status */}
+                        <td className="px-3 py-2">
+                          {renderStatusBadge(p.status)}
+                        </td>
 
-                      {/* Name or Note */}
-                      <td className="px-3 py-2 text-gray-600">
-                        {p.note ? (
-                          <span>{p.note}</span>
-                        ) : (
-                          <span className="italic text-gray-400">—</span>
-                        )}
-                      </td>
+                        {/* Time */}
+                        <td className="px-3 py-2 text-gray-500">{time}</td>
 
-                      {/* Status badge */}
-                      <td className="px-3 py-2">
-                        {renderStatusBadge(p.status)}
-                      </td>
-
-                      {/* Time in 12h format */}
-                      <td className="px-3 py-2 text-gray-500">{time}</td>
-
-                      {/* Actions */}
-                      <td className="px-3 py-2">
-                        <div className="flex justify-end gap-2">
-                          <button
-                            type="button"
-                            onClick={() => startEdit(p)}
-                            className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                          >
-                            <Pencil className="h-3 w-3" />
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openDeleteModal(p)}
-                            className="inline-flex items-center gap-1 rounded-md bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                            Delete
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        {/* Actions */}
+                        <td className="px-3 py-2">
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => startEdit(p)}
+                              className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                            >
+                              <Pencil className="h-3 w-3" />
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openDeleteModal(p)}
+                              className="inline-flex items-center gap-1 rounded-md bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
         )}
       </div>
 
-      {/* Delete Confirmation Modal */}
+      {/* Delete Confirmation Modal (unchanged) */}
       {showDeleteModal && deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">

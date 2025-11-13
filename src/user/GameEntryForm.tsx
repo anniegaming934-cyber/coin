@@ -30,6 +30,9 @@ const GameEntryForm: React.FC = () => {
   const [isCashIn, setIsCashIn] = useState(true); // switch maps to deposit/redeem
   const [method, setMethod] = useState<PaymentMethod>("cashapp");
 
+  // 👇 NEW: username (for individual tracking)
+  const [username, setUsername] = useState("");
+
   const [playerName, setPlayerName] = useState("");
   const [note, setNote] = useState("");
   const [date, setDate] = useState(getToday());
@@ -219,6 +222,7 @@ const GameEntryForm: React.FC = () => {
 
   const needsMethod = true;
   const canSubmit = useMemo(() => {
+    if (!username.trim()) return false; // 👈 require username
     if (!playerName.trim()) return false;
     if (needsMethod && !method) return false;
     if (selectedGames.length === 0) return false;
@@ -229,6 +233,7 @@ const GameEntryForm: React.FC = () => {
     if (type === "redeem" && !(totalPaid > 0)) return false; // need total paid on cashout
     return true;
   }, [
+    username,
     playerName,
     needsMethod,
     method,
@@ -312,13 +317,20 @@ const GameEntryForm: React.FC = () => {
       // POST one entry per selected game with its own amount
       await Promise.all(
         selectedGames.map((gname) => {
-          const base = perGameCalc[gname]?.base ?? 0;
-          const bonus = perGameCalc[gname]?.bonus ?? 0;
-          const finalAmt = perGameCalc[gname]?.finalAmt ?? 0;
+          const calc = perGameCalc[gname] || {
+            base: 0,
+            bonus: 0,
+            finalAmt: 0,
+          };
+          const base = calc.base;
+          const bonus = calc.bonus;
+          const finalAmt = calc.finalAmt;
 
-          return apiClient.post("api/game-entries", {
+          return apiClient.post("/api/game-entries", {
             type,
-            method,
+            method, // 👈 always send method
+            username: username.trim(), // 👈 WHO is doing this
+            createdBy: username.trim(), // 👈 optional, matches your existing docs
             playerName: playerName.trim(),
             gameName: gname,
             amount: Number(finalAmt),
@@ -351,6 +363,7 @@ const GameEntryForm: React.FC = () => {
       setType("deposit");
       setFlow(true);
       setMethod("cashapp");
+      setUsername("");
       setPlayerName("");
       setSelectedGames([]);
       setAmountsByGame({});
@@ -381,6 +394,18 @@ const GameEntryForm: React.FC = () => {
           onSubmit={handleSubmit}
           className="grid grid-cols-1 md:grid-cols-4 gap-4"
         >
+          {/* Username (for individual tracking) */}
+          <div>
+            <label className="block text-sm font-medium mb-1">Username</label>
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              placeholder="e.g. admin01"
+              className="w-full rounded-lg border px-3 py-2"
+              required
+            />
+          </div>
+
           {/* Type */}
           <div>
             <label className="block text-sm font-medium mb-1">Type</label>
@@ -421,8 +446,8 @@ const GameEntryForm: React.FC = () => {
             </div>
           )}
 
-          {/* Cash Flow on the RIGHT side (always visible, disabled on freeplay) */}
-          <div className="md:col-span-2 flex items-end md:justify-end">
+          {/* Cash Flow (deposit vs redeem) */}
+          <div className="md:col-span-1 flex items-end md:justify-end">
             <div className="w-full md:w-auto">
               <label className="block text-sm font-medium mb-1">
                 Cash Flow
