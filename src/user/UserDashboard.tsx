@@ -4,7 +4,6 @@ import { apiClient } from "../apiConfig";
 
 import Sidebar, { type SidebarSection } from "../admin/Sidebar";
 import UserSessionBar from "./UserSessionBar";
-import PaymentForm, { type PaymentMethod, type TxType } from "./Paymentform";
 import PaymentHistory from "./PaymentHistory";
 import UserTable from "./UserTable";
 import UserCharts from "./UserCharts";
@@ -12,6 +11,7 @@ import UserCharts from "./UserCharts";
 import type { Game } from "../admin/Gamerow";
 import GameEntryForm from "./GameEntryForm";
 import RecentEntriesTable, { GameEntry } from "./RecentEntriesTable";
+import PaymentCombinedTable from "./PaymentCombinedTable";
 
 // -----------------------------
 // Constants
@@ -195,12 +195,7 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
               </div>
 
               <div className="grid grid-cols-1 gap-6 mb-8">
-                <PaymentForm
-                  initialTotals={paymentTotals}
-                  onTotalsChange={(t) => setPaymentTotals(t)}
-                  onRecharge={onRecharge}
-                  onReset={onReset}
-                />
+                <PaymentCombinedTable />
               </div>
             </>
           )}

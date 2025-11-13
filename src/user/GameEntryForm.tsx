@@ -31,14 +31,16 @@ const GameEntryForm: React.FC = () => {
   const [method, setMethod] = useState<PaymentMethod>("cashapp");
 
   const [playerName, setPlayerName] = useState("");
-  const [amount, setAmount] = useState<number | "">("");
   const [note, setNote] = useState("");
   const [date, setDate] = useState(getToday());
   const [bonusRate, setBonusRate] = useState<number>(10);
 
   // ===== multiple game selection =====
   const [selectedGames, setSelectedGames] = useState<string[]>([]); // chips
-  const [gameQuery, setGameQuery] = useState(""); // current typing
+  const [amountsByGame, setAmountsByGame] = useState<Record<string, string>>(
+    {}
+  );
+  const [gameQuery, setGameQuery] = useState("");
 
   // cache names per type
   const [namesByType, setNamesByType] = useState<Record<EntryType, string[]>>({
@@ -100,7 +102,6 @@ const GameEntryForm: React.FC = () => {
     const q = debouncedGameQuery.trim();
     if (!q) {
       const cached = namesByType[type] || [];
-      // filter out already selected
       const available = cached.filter((n) => !selectedGames.includes(n));
       setGameOptions(available.slice(0, 10));
       setGamesOpen(available.length > 0);
@@ -175,45 +176,88 @@ const GameEntryForm: React.FC = () => {
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
-  // amounts / bonus
-  const baseAmount = amount === "" ? 0 : Number(amount);
-  const bonus = useMemo(() => {
-    if (Number.isNaN(baseAmount) || baseAmount <= 0) return 0;
-    return type === "deposit" ? (baseAmount * bonusRate) / 100 : 0;
-  }, [baseAmount, bonusRate, type]);
+  // ===== per-game amounts & bonus helpers =====
+  const parseAmount = (v: string) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
 
-  const amountFinal = useMemo(() => {
-    return type === "deposit" ? baseAmount + bonus : baseAmount;
-  }, [baseAmount, bonus, type]);
+  const perGameCalc = useMemo(() => {
+    return selectedGames.reduce((acc, g) => {
+      const base = parseAmount(amountsByGame[g] || "");
+      const bonus =
+        type === "deposit" && base > 0 ? (base * bonusRate) / 100 : 0;
+      const finalAmt = type === "deposit" ? base + bonus : base;
+      acc[g] = { base, bonus, finalAmt };
+      return acc;
+    }, {} as Record<string, { base: number; bonus: number; finalAmt: number }>);
+  }, [selectedGames, amountsByGame, bonusRate, type]);
+
+  // --- Cashout totals ---
+  const totalCashout = useMemo(() => {
+    if (type !== "redeem") return 0;
+    return selectedGames.reduce(
+      (sum, g) => sum + (perGameCalc[g]?.finalAmt || 0),
+      0
+    );
+  }, [type, selectedGames, perGameCalc]);
+
+  const [totalPaidInput, setTotalPaidInput] = useState<string>(""); // user-provided
+  const totalPaid = useMemo(
+    () => Number(totalPaidInput) || 0,
+    [totalPaidInput]
+  );
+  const remainingPay = useMemo(() => {
+    if (type !== "redeem") return 0;
+    const rem = totalPaid - totalCashout;
+    return rem > 0 ? rem : 0; // floor at 0
+  }, [type, totalPaid, totalCashout]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
 
-  const needsMethod = type === "deposit" || type === "redeem";
+  const needsMethod = true;
   const canSubmit = useMemo(() => {
     if (!playerName.trim()) return false;
-    if (amount === "" || Number.isNaN(Number(amount)) || Number(amount) <= 0)
-      return false;
     if (needsMethod && !method) return false;
-    // require at least one game: either selected chips or typed value
-    if (selectedGames.length === 0 && !gameQuery.trim()) return false;
+    if (selectedGames.length === 0) return false;
+    for (const g of selectedGames) {
+      const base = parseAmount(amountsByGame[g] || "");
+      if (!(base > 0)) return false;
+    }
+    if (type === "redeem" && !(totalPaid > 0)) return false; // need total paid on cashout
     return true;
-  }, [playerName, amount, needsMethod, method, selectedGames, gameQuery]);
+  }, [
+    playerName,
+    needsMethod,
+    method,
+    selectedGames,
+    amountsByGame,
+    type,
+    totalPaid,
+  ]);
 
   // ===== token helpers =====
   function addGameToken(raw: string) {
     const name = raw.trim();
     if (!name) return;
     if (selectedGames.includes(name)) return;
-    setSelectedGames((prev) =>
-      [...prev, name].sort((a, b) => a.localeCompare(b))
-    );
+    setSelectedGames((prev) => {
+      const next = [...prev, name].sort((a, b) => a.localeCompare(b));
+      return next;
+    });
+    setAmountsByGame((prev) => ({ ...prev, [name]: "" })); // initialize amount input
     setGameQuery("");
   }
 
   function removeGameToken(name: string) {
     setSelectedGames((prev) => prev.filter((g) => g !== name));
+    setAmountsByGame((prev) => {
+      const c = { ...prev };
+      delete c[name];
+      return c;
+    });
   }
 
   function chooseGame(name: string) {
@@ -245,6 +289,16 @@ const GameEntryForm: React.FC = () => {
     }
   }
 
+  // Helper: apply first amount to all games
+  function applyFirstToAll() {
+    const first = selectedGames[0];
+    if (!first) return;
+    const val = amountsByGame[first] || "";
+    const next: Record<string, string> = {};
+    selectedGames.forEach((g) => (next[g] = val));
+    setAmountsByGame(next);
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -255,35 +309,37 @@ const GameEntryForm: React.FC = () => {
     }
     setSaving(true);
     try {
-      // final list of game names to submit
-      const gamesToSubmit =
-        selectedGames.length > 0
-          ? selectedGames
-          : [gameQuery.trim()].filter(Boolean);
-
-      // batch POST one entry per game
+      // POST one entry per selected game with its own amount
       await Promise.all(
-        gamesToSubmit.map((gname) =>
-          apiClient.post("api/game-entries", {
+        selectedGames.map((gname) => {
+          const base = perGameCalc[gname]?.base ?? 0;
+          const bonus = perGameCalc[gname]?.bonus ?? 0;
+          const finalAmt = perGameCalc[gname]?.finalAmt ?? 0;
+
+          return apiClient.post("api/game-entries", {
             type,
-            method: needsMethod ? method : undefined,
+            method,
             playerName: playerName.trim(),
             gameName: gname,
-            amount: Number(amountFinal),
+            amount: Number(finalAmt),
             note: note.trim(),
-            amountBase: Number(baseAmount),
+            amountBase: Number(base),
             bonusRate: type === "deposit" ? Number(bonusRate) : 0,
             bonusAmount: Number(bonus),
-            amountFinal: Number(amountFinal),
+            amountFinal: Number(finalAmt),
             date: date ? new Date(date).toISOString() : undefined,
-          })
-        )
+            // 👇 cashout extras (for your backend to use/ignore as needed)
+            totalPaid: type === "redeem" ? Number(totalPaid) : undefined,
+            totalCashout: type === "redeem" ? Number(totalCashout) : undefined,
+            remainingPay: type === "redeem" ? Number(remainingPay) : undefined,
+          });
+        })
       );
 
       // add to cache for current type
-      if (gamesToSubmit.length) {
+      if (selectedGames.length) {
         setNamesByType((old) => {
-          const set = new Set([...(old[type] || []), ...gamesToSubmit]);
+          const set = new Set([...(old[type] || []), ...selectedGames]);
           return {
             ...old,
             [type]: Array.from(set).sort((a, b) => a.localeCompare(b)),
@@ -297,14 +353,15 @@ const GameEntryForm: React.FC = () => {
       setMethod("cashapp");
       setPlayerName("");
       setSelectedGames([]);
+      setAmountsByGame({});
       setGameQuery("");
-      setAmount("");
       setNote("");
       setDate(getToday());
       setBonusRate(10);
+      setTotalPaidInput("");
       setOk(
-        `Saved ${gamesToSubmit.length} entr${
-          gamesToSubmit.length > 1 ? "ies" : "y"
+        `Saved ${selectedGames.length} entr${
+          selectedGames.length > 1 ? "ies" : "y"
         }!`
       );
     } catch (err: any) {
@@ -511,57 +568,130 @@ const GameEntryForm: React.FC = () => {
             </div>
           </div>
 
-          {/* Amount */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Amount</label>
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              value={amount}
-              onChange={(e) =>
-                setAmount(e.target.value === "" ? "" : Number(e.target.value))
-              }
-              placeholder="0.00"
-              className="w-full rounded-lg border px-3 py-2"
-              required
-            />
-          </div>
+          {/* Per-game Amounts (auto-expands) */}
+          {selectedGames.length > 0 && (
+            <div className="md:col-span-4">
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-sm font-semibold">
+                  Amounts per Game
+                </label>
+                <button
+                  type="button"
+                  onClick={applyFirstToAll}
+                  className="text-sm underline"
+                >
+                  Apply first amount to all
+                </button>
+              </div>
 
-          {/* Bonus only for deposit */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {selectedGames.map((g) => {
+                  const calc = perGameCalc[g] || {
+                    base: 0,
+                    bonus: 0,
+                    finalAmt: 0,
+                  };
+                  return (
+                    <div key={g} className="border rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="text-sm font-medium">{g}</div>
+                        <button
+                          type="button"
+                          className="text-xs text-red-600"
+                          onClick={() => removeGameToken(g)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+
+                      <label className="block text-xs text-slate-600 mb-1">
+                        Amount
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={amountsByGame[g] ?? ""}
+                        onChange={(e) =>
+                          setAmountsByGame((prev) => ({
+                            ...prev,
+                            [g]: e.target.value,
+                          }))
+                        }
+                        placeholder="0.00"
+                        className="w-full rounded-lg border px-3 py-2"
+                        required
+                      />
+
+                      {type === "deposit" && (
+                        <p className="text-[11px] text-slate-600 mt-2">
+                          Bonus: {calc.bonus.toFixed(2)} · Final:{" "}
+                          {calc.finalAmt.toFixed(2)}
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Bonus only for deposit (global rate) */}
           {type === "deposit" && (
+            <div className="md:col-span-2">
+              <label className="block text-sm font-medium mb-1">
+                Bonus (%)
+              </label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={bonusRate}
+                onChange={(e) => setBonusRate(Number(e.target.value) || 0)}
+                className="w-full rounded-lg border px-3 py-2"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                Applied per game. Bonus = amount × rate / 100
+              </p>
+            </div>
+          )}
+
+          {/* Cashout totals (only on Redeem) */}
+          {type === "redeem" && (
             <>
-              <div>
+              <div className="md:col-span-1">
                 <label className="block text-sm font-medium mb-1">
-                  Bonus (%)
+                  Total Paid
                 </label>
                 <input
                   type="number"
                   min={0}
                   step="0.01"
-                  value={bonusRate}
-                  onChange={(e) => setBonusRate(Number(e.target.value) || 0)}
+                  value={totalPaidInput}
+                  onChange={(e) => setTotalPaidInput(e.target.value)}
+                  placeholder="0.00"
                   className="w-full rounded-lg border px-3 py-2"
+                  required
                 />
               </div>
 
-              <div>
+              <div className="md:col-span-1">
                 <label className="block text-sm font-medium mb-1">
-                  Bonus Amount
+                  Total Cashout
                 </label>
                 <input
-                  value={bonus.toFixed(2)}
+                  value={totalCashout.toFixed(2)}
                   readOnly
                   className="w-full rounded-lg border px-3 py-2 bg-gray-50"
                 />
               </div>
 
-              <div>
+              <div className="md:col-span-1">
                 <label className="block text-sm font-medium mb-1">
-                  Final Amount
+                  Remaining Pay
                 </label>
                 <input
-                  value={amountFinal.toFixed(2)}
+                  value={remainingPay.toFixed(2)}
                   readOnly
                   className="w-full rounded-lg border px-3 py-2 bg-gray-50"
                 />
