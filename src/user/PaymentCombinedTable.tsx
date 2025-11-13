@@ -62,7 +62,7 @@ const PaymentCombinedTable: React.FC = () => {
       setLoading(true);
       try {
         // 🔗 Only fetch entries for this username
-        const res = await apiClient.get("/api/game-entries", {
+        const res = await apiClient.get("/api/game-entries?username=", {
           params: { username },
         });
 
