@@ -152,9 +152,9 @@ const AdminUserActivityTable: React.FC = () => {
 
   // Optional time (if you still want it)
   const formatTime = (iso: string | null): string => {
-    if (!iso) return "—";
+    if (!iso) return "";
     const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return "—";
+    if (Number.isNaN(d.getTime())) return "";
     return d.toLocaleTimeString([], {
       hour: "2-digit",
       minute: "2-digit",
@@ -324,7 +324,8 @@ const AdminUserActivityTable: React.FC = () => {
             <tr>
               <th className="px-4 py-2 text-left">#</th>
               <th className="px-4 py-2 text-left">User</th>
-              <th className="px-4 py-2 text-left">Last Checked</th>
+              <th className="px-4 py-2 text-left">Checked In</th>
+              <th className="px-4 py-2 text-left">Checked Out</th>
               <th className="px-4 py-2 text-left">Status</th>
               <th className="px-4 py-2 text-right">Actions</th>
             </tr>
@@ -365,6 +366,16 @@ const AdminUserActivityTable: React.FC = () => {
                       </span>
                       <span className="text-xs text-gray-500">
                         {formatTime(u.lastLogin)}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-2 align-top">
+                    <div className="flex flex-col text-gray-800">
+                      <span className="text-sm font-medium">
+                        {formatPrettyDate(u?.lastLogout)}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {formatTime(u?.lastLogout)}
                       </span>
                     </div>
                   </td>

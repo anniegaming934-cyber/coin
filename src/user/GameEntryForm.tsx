@@ -1,3 +1,4 @@
+// src/GameEntryForm.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { apiClient } from "../apiConfig";
 import { type EntryType } from "./RecentEntriesTable";
@@ -27,10 +28,10 @@ const getToday = () => {
 
 const GameEntryForm: React.FC = () => {
   const [type, setType] = useState<EntryType>("deposit");
-  const [isCashIn, setIsCashIn] = useState(true); // switch maps to deposit/redeem
+  const [isCashIn, setIsCashIn] = useState(true); // deposit vs redeem
   const [method, setMethod] = useState<PaymentMethod>("cashapp");
 
-  // 👇 NEW: username (for individual tracking)
+  // 🔐 username comes from backend login and is not editable
   const [username, setUsername] = useState("");
 
   const [playerName, setPlayerName] = useState("");
@@ -39,7 +40,7 @@ const GameEntryForm: React.FC = () => {
   const [bonusRate, setBonusRate] = useState<number>(10);
 
   // ===== multiple game selection =====
-  const [selectedGames, setSelectedGames] = useState<string[]>([]); // chips
+  const [selectedGames, setSelectedGames] = useState<string[]>([]);
   const [amountsByGame, setAmountsByGame] = useState<Record<string, string>>(
     {}
   );
@@ -52,7 +53,6 @@ const GameEntryForm: React.FC = () => {
     redeem: [],
   });
 
-  // autocomplete
   const debouncedGameQuery = useDebounce(gameQuery, 250);
   const [gameOptions, setGameOptions] = useState<string[]>([]);
   const [gamesOpen, setGamesOpen] = useState(false);
@@ -62,9 +62,39 @@ const GameEntryForm: React.FC = () => {
   const gameInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // 🔐 Load username from backend: GET /api/auth/login
+  useEffect(() => {
+    async function fetchUser() {
+      try {
+        const { data } = await apiClient.get("/api/logins", {
+          params: { username: "" }, // optional filter
+        });
+        if (Array.isArray(data) && data.length > 0) {
+          const username = data[0].username;
+
+          setUsername(username);
+          console.log("username", username);
+
+          localStorage.setItem("username", username);
+        } else {
+          // fallback to localStorage
+          const stored = localStorage.getItem("username");
+          if (stored) setUsername(stored);
+        }
+      } catch (err) {
+        console.error("Failed to load logged-in user:", err);
+
+        const stored = localStorage.getItem("username");
+        if (stored) setUsername(stored);
+      }
+    }
+
+    fetchUser();
+  }, []);
+
   // keep switch ↔ type in sync
   useEffect(() => {
-    if (type === "freeplay") return; // show disabled, but do not flip state
+    if (type === "freeplay") return;
     setIsCashIn(type === "deposit");
   }, [type]);
 
@@ -93,7 +123,9 @@ const GameEntryForm: React.FC = () => {
           a.localeCompare(b)
         );
         if (!cancelled) setNamesByType((old) => ({ ...old, [type]: unique }));
-      } catch {}
+      } catch {
+        // ignore
+      }
     })();
     return () => {
       cancelled = true;
@@ -205,7 +237,7 @@ const GameEntryForm: React.FC = () => {
     );
   }, [type, selectedGames, perGameCalc]);
 
-  const [totalPaidInput, setTotalPaidInput] = useState<string>(""); // user-provided
+  const [totalPaidInput, setTotalPaidInput] = useState<string>("");
   const totalPaid = useMemo(
     () => Number(totalPaidInput) || 0,
     [totalPaidInput]
@@ -213,7 +245,7 @@ const GameEntryForm: React.FC = () => {
   const remainingPay = useMemo(() => {
     if (type !== "redeem") return 0;
     const rem = totalPaid - totalCashout;
-    return rem > 0 ? rem : 0; // floor at 0
+    return rem > 0 ? rem : 0;
   }, [type, totalPaid, totalCashout]);
 
   const [saving, setSaving] = useState(false);
@@ -222,7 +254,7 @@ const GameEntryForm: React.FC = () => {
 
   const needsMethod = true;
   const canSubmit = useMemo(() => {
-    if (!username.trim()) return false; // 👈 require username
+    if (!username.trim()) return false; // must be logged in
     if (!playerName.trim()) return false;
     if (needsMethod && !method) return false;
     if (selectedGames.length === 0) return false;
@@ -230,7 +262,7 @@ const GameEntryForm: React.FC = () => {
       const base = parseAmount(amountsByGame[g] || "");
       if (!(base > 0)) return false;
     }
-    if (type === "redeem" && !(totalPaid > 0)) return false; // need total paid on cashout
+    if (type === "redeem" && !(totalPaid > 0)) return false;
     return true;
   }, [
     username,
@@ -252,7 +284,7 @@ const GameEntryForm: React.FC = () => {
       const next = [...prev, name].sort((a, b) => a.localeCompare(b));
       return next;
     });
-    setAmountsByGame((prev) => ({ ...prev, [name]: "" })); // initialize amount input
+    setAmountsByGame((prev) => ({ ...prev, [name]: "" }));
     setGameQuery("");
   }
 
@@ -294,7 +326,6 @@ const GameEntryForm: React.FC = () => {
     }
   }
 
-  // Helper: apply first amount to all games
   function applyFirstToAll() {
     const first = selectedGames[0];
     if (!first) return;
@@ -314,7 +345,6 @@ const GameEntryForm: React.FC = () => {
     }
     setSaving(true);
     try {
-      // POST one entry per selected game with its own amount
       await Promise.all(
         selectedGames.map((gname) => {
           const calc = perGameCalc[gname] || {
@@ -328,9 +358,9 @@ const GameEntryForm: React.FC = () => {
 
           return apiClient.post("/api/game-entries", {
             type,
-            method, // 👈 always send method
-            username: username.trim(), // 👈 WHO is doing this
-            createdBy: username.trim(), // 👈 optional, matches your existing docs
+            method,
+            username: username.trim(), // from backend login
+            createdBy: username.trim(),
             playerName: playerName.trim(),
             gameName: gname,
             amount: Number(finalAmt),
@@ -340,7 +370,6 @@ const GameEntryForm: React.FC = () => {
             bonusAmount: Number(bonus),
             amountFinal: Number(finalAmt),
             date: date ? new Date(date).toISOString() : undefined,
-            // 👇 cashout extras (for your backend to use/ignore as needed)
             totalPaid: type === "redeem" ? Number(totalPaid) : undefined,
             totalCashout: type === "redeem" ? Number(totalCashout) : undefined,
             remainingPay: type === "redeem" ? Number(remainingPay) : undefined,
@@ -348,7 +377,6 @@ const GameEntryForm: React.FC = () => {
         })
       );
 
-      // add to cache for current type
       if (selectedGames.length) {
         setNamesByType((old) => {
           const set = new Set([...(old[type] || []), ...selectedGames]);
@@ -359,11 +387,10 @@ const GameEntryForm: React.FC = () => {
         });
       }
 
-      // reset form
+      // reset form (username stays)
       setType("deposit");
       setFlow(true);
       setMethod("cashapp");
-      setUsername("");
       setPlayerName("");
       setSelectedGames([]);
       setAmountsByGame({});
@@ -394,16 +421,20 @@ const GameEntryForm: React.FC = () => {
           onSubmit={handleSubmit}
           className="grid grid-cols-1 md:grid-cols-4 gap-4"
         >
-          {/* Username (for individual tracking) */}
+          {/* Username (from backend, disabled) */}
           <div>
             <label className="block text-sm font-medium mb-1">Username</label>
             <input
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="e.g. admin01"
-              className="w-full rounded-lg border px-3 py-2"
-              required
+              disabled
+              className="w-full rounded-lg border px-3 py-2 bg-gray-100 text-gray-600"
+              placeholder="Not logged in"
             />
+            {!username && (
+              <p className="text-[11px] text-red-500 mt-1">
+                Please log in first to add entries.
+              </p>
+            )}
           </div>
 
           {/* Type */}
@@ -427,7 +458,7 @@ const GameEntryForm: React.FC = () => {
             </select>
           </div>
 
-          {/* Method (only for money moves) */}
+          {/* Method */}
           {type !== "freeplay" && (
             <div>
               <label className="block text-sm font-medium mb-1">Method</label>
@@ -446,7 +477,7 @@ const GameEntryForm: React.FC = () => {
             </div>
           )}
 
-          {/* Cash Flow (deposit vs redeem) */}
+          {/* Cash Flow */}
           <div className="md:col-span-1 flex items-end md:justify-end">
             <div className="w-full md:w-auto">
               <label className="block text-sm font-medium mb-1">
@@ -508,13 +539,12 @@ const GameEntryForm: React.FC = () => {
             />
           </div>
 
-          {/* Game Names (chips + autocomplete) */}
+          {/* Game Names */}
           <div className="md:col-span-3" ref={dropdownRef}>
             <label className="block text-sm font-medium mb-1">
               Game Name(s)
             </label>
 
-            {/* Chips */}
             {selectedGames.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-2">
                 {selectedGames.map((g) => (
@@ -527,7 +557,6 @@ const GameEntryForm: React.FC = () => {
                       type="button"
                       onClick={() => removeGameToken(g)}
                       className="text-slate-500 hover:text-slate-700"
-                      aria-label={`Remove ${g}`}
                     >
                       ✕
                     </button>
@@ -536,7 +565,6 @@ const GameEntryForm: React.FC = () => {
               </div>
             )}
 
-            {/* Input */}
             <div className="relative">
               <input
                 ref={gameInputRef}
@@ -557,7 +585,6 @@ const GameEntryForm: React.FC = () => {
                 className="w-full rounded-lg border px-3 py-2"
               />
 
-              {/* Dropdown */}
               {gamesOpen && (
                 <div className="absolute z-20 mt-1 w-full rounded-lg border bg-white shadow-lg max-h-60 overflow-auto">
                   {gamesLoading && (
@@ -593,7 +620,7 @@ const GameEntryForm: React.FC = () => {
             </div>
           </div>
 
-          {/* Per-game Amounts (auto-expands) */}
+          {/* Per-game Amounts */}
           {selectedGames.length > 0 && (
             <div className="md:col-span-4">
               <div className="flex items-center justify-between mb-2">
@@ -661,7 +688,7 @@ const GameEntryForm: React.FC = () => {
             </div>
           )}
 
-          {/* Bonus only for deposit (global rate) */}
+          {/* Bonus only for deposit */}
           {type === "deposit" && (
             <div className="md:col-span-2">
               <label className="block text-sm font-medium mb-1">
@@ -681,7 +708,7 @@ const GameEntryForm: React.FC = () => {
             </div>
           )}
 
-          {/* Cashout totals (only on Redeem) */}
+          {/* Cashout totals */}
           {type === "redeem" && (
             <>
               <div className="md:col-span-1">

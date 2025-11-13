@@ -4,20 +4,26 @@ import { apiClient } from "../apiConfig";
 import { Loader2, Pencil, Trash2, X, Check, AlertTriangle } from "lucide-react";
 
 export type PaymentMethod = "cashapp" | "paypal" | "chime";
-type TxType = "cashin" | "cashout";
-type FilterType = "all" | "cashin" | "cashout";
+type PaymentType = "deposit" | "redeem" | "freeplay" | "cashin" | "cashout";
+type FilterType = "all" | PaymentType;
 type PaymentStatus = "pending" | "paying" | "paid" | "remaining";
 
 interface Payment {
-  id: string;
+  id?: string;          // some APIs use this
+  _id?: string;         // Mongoose default
   amount: number;
+  amountBase?: number;
+  amountFinal?: number;
+  bonusAmount?: number;
+  bonusRate?: number;
   method: PaymentMethod;
   note?: string | null;
-  date: string; // "YYYY-MM-DD"
-  createdAt: string; // ISO
-  txType?: TxType;
+  playerName?: string | null;
+  gameName?: string | null;
+  type: PaymentType;
+  date: string;       // "YYYY-MM-DD"
+  createdAt: string;  // ISO
   status?: PaymentStatus;
-  paidAmount?: number; // 👈 NEW: how much of this cashout is already paid
 }
 
 interface PaymentHistoryProps {
@@ -49,17 +55,17 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 🔽 type filter
+  // 🔽 filter by "type" field
   const [filterType, setFilterType] = useState<FilterType>("all");
 
   // editing state
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editType, setEditType] = useState<PaymentType>("deposit");
   const [editAmount, setEditAmount] = useState<string>("");
   const [editMethod, setEditMethod] = useState<PaymentMethod>("cashapp");
-  const [editNote, setEditNote] = useState<string>("");
-  const [editTxType, setEditTxType] = useState<TxType>("cashin");
+  const [editName, setEditName] = useState<string>(""); // playerName
   const [editStatus, setEditStatus] = useState<PaymentStatus>("pending");
-  const [editPaidAmount, setEditPaidAmount] = useState<string>("0"); // 👈 NEW
+  const [editNote, setEditNote] = useState<string>(""); // optional note, still captured
 
   // delete modal state
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -97,57 +103,45 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
 
   // start editing a row
   const startEdit = (p: Payment) => {
-    const type: TxType = p.txType ?? "cashin";
+    const rowId = p.id || p._id || "";
     const status: PaymentStatus = p.status ?? "pending";
 
-    setEditingId(p.id);
+    setEditingId(rowId);
+    setEditType(p.type);
     setEditAmount(String(p.amount));
     setEditMethod(p.method);
-    setEditNote(p.note ?? "");
-    setEditTxType(type);
+    setEditName(p.playerName ?? "");
     setEditStatus(status);
-
-    const paid = p.paidAmount ?? (status === "paid" ? p.amount : 0);
-    setEditPaidAmount(String(paid));
+    setEditNote(p.note ?? "");
   };
 
   const cancelEdit = () => {
     setEditingId(null);
+    setEditType("deposit");
     setEditAmount("");
     setEditMethod("cashapp");
-    setEditNote("");
-    setEditTxType("cashin");
+    setEditName("");
     setEditStatus("pending");
-    setEditPaidAmount("0");
+    setEditNote("");
   };
 
   const saveEdit = async (id: string) => {
     const amt = Number(editAmount);
-    const paidAmt = Number(editPaidAmount);
-
     if (!Number.isFinite(amt) || amt <= 0) {
-      alert("Enter a valid total amount.");
-      return;
-    }
-    if (paidAmt < 0) {
-      alert("Paid amount cannot be negative.");
-      return;
-    }
-    if (paidAmt > amt) {
-      alert("Paid amount cannot be more than total.");
+      alert("Enter a valid amount.");
       return;
     }
 
     try {
       setLoading(true);
-      await apiClient.put(`${apiBase}/game-entries/${id}`, {
+      await apiClient.put(`${apiBase}/payments/${id}`, {
         amount: amt,
         method: editMethod,
+        playerName: editName.trim() || null,
+        status: editStatus,
+        type: editType,
         note: editNote.trim() || null,
         date,
-        txType: editTxType,
-        status: editStatus,
-        paidAmount: paidAmt, // 👈 send to backend
       });
 
       await loadPayments();
@@ -162,7 +156,8 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
 
   // open delete modal
   const openDeleteModal = (p: Payment) => {
-    setDeleteId(p.id);
+    const rowId = p.id || p._id || "";
+    setDeleteId(rowId);
     setDeleteTarget(p);
     setShowDeleteModal(true);
   };
@@ -172,7 +167,7 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
 
     try {
       setDeleting(true);
-      await apiClient.delete(`${apiBase}/game-entries/${deleteId}`);
+      await apiClient.delete(`${apiBase}/payments/${deleteId}`);
       await loadPayments();
       setShowDeleteModal(false);
       setDeleteId(null);
@@ -192,33 +187,13 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
     setDeleteTarget(null);
   };
 
-  // apply type filter
+  // filter by type (deposit, redeem, cashout, etc.)
   const filteredPayments = payments.filter((p) => {
-    const tx = (p.txType ?? "cashin") as TxType;
     if (filterType === "all") return true;
-    return tx === filterType;
+    return p.type === filterType;
   });
 
-  const isCashOutView = filterType === "cashout";
-
-  // 🔢 Cashout summary for Total Paid & Remaining Pay
-  const cashoutPayments = filteredPayments.filter(
-    (p) => (p.txType ?? "cashin") === "cashout"
-  );
-
-  const totalCashOut = cashoutPayments.reduce(
-    (sum, p) => sum + (p.amount || 0),
-    0
-  );
-
-  const totalPaid = cashoutPayments.reduce((sum, p) => {
-    const status: PaymentStatus = p.status ?? "pending";
-    const paidForRow = p.paidAmount ?? (status === "paid" ? p.amount : 0);
-    return sum + (paidForRow || 0);
-  }, 0);
-
-  const remainingPay = Math.max(totalCashOut - totalPaid, 0);
-
+  // status badge helper
   const renderStatusBadge = (status: PaymentStatus | undefined) => {
     const s: PaymentStatus = status ?? "pending";
     const base =
@@ -226,9 +201,7 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
 
     if (s === "paid") {
       return (
-        <span
-          className={`${base} bg-emerald-50 text-emerald-700 border-emerald-100`}
-        >
+        <span className={`${base} bg-emerald-50 text-emerald-700 border-emerald-100`}>
           Paid
         </span>
       );
@@ -242,18 +215,42 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
     }
     if (s === "remaining") {
       return (
-        <span
-          className={`${base} bg-orange-50 text-orange-700 border-orange-100`}
-        >
+        <span className={`${base} bg-orange-50 text-orange-700 border-orange-100`}>
           Remaining
         </span>
       );
     }
+    // pending
     return (
-      <span
-        className={`${base} bg-yellow-50 text-yellow-700 border-yellow-100`}
-      >
+      <span className={`${base} bg-yellow-50 text-yellow-700 border-yellow-100`}>
         Pending
+      </span>
+    );
+  };
+
+  // type badge helper
+  const renderTypeBadge = (t: PaymentType) => {
+    const base =
+      "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border";
+
+    if (t === "deposit" || t === "cashout") {
+      return (
+        <span className={`${base} bg-red-50 text-red-700 border-red-100`}>
+          {t.toUpperCase()}
+        </span>
+      );
+    }
+    if (t === "redeem" || t === "cashin") {
+      return (
+        <span className={`${base} bg-emerald-50 text-emerald-700 border-emerald-100`}>
+          {t.toUpperCase()}
+        </span>
+      );
+    }
+    // freeplay
+    return (
+      <span className={`${base} bg-gray-50 text-gray-700 border-gray-200`}>
+        FREEPLAY
       </span>
     );
   };
@@ -280,7 +277,7 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
               />
             </div>
 
-            {/* Type filter */}
+            {/* Type filter (by "type" field) */}
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">
                 Type
@@ -291,42 +288,15 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                 className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="all">All</option>
+                <option value="deposit">Deposit</option>
+                <option value="redeem">Redeem</option>
+                <option value="freeplay">Freeplay</option>
                 <option value="cashin">Cash In</option>
                 <option value="cashout">Cash Out</option>
               </select>
             </div>
           </div>
         </div>
-
-        {/* 💰 Cashout summary: total, paid, remaining */}
-        {isCashOutView && cashoutPayments.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
-              <p className="text-[11px] font-semibold uppercase text-gray-500">
-                Total Cash Out
-              </p>
-              <p className="text-base font-bold text-red-600">
-                {fmtUSD(totalCashOut)}
-              </p>
-            </div>
-            <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
-              <p className="text-[11px] font-semibold uppercase text-gray-500">
-                Total Paid
-              </p>
-              <p className="text-base font-bold text-emerald-600">
-                {fmtUSD(totalPaid)}
-              </p>
-            </div>
-            <div className="rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">
-              <p className="text-[11px] font-semibold uppercase text-gray-500">
-                Remaining Pay
-              </p>
-              <p className="text-base font-bold text-orange-600">
-                {fmtUSD(remainingPay)}
-              </p>
-            </div>
-          </div>
-        )}
 
         {loading && (
           <div className="flex items-center justify-center py-6 text-gray-500 text-sm">
@@ -350,212 +320,105 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
 
         {!loading && !error && filteredPayments.length > 0 && (
           <div className="overflow-x-auto">
-            {isCashOutView ? (
-              /* 🔻 CASHOUT TABLE with Total / Paid / Remaining */
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    <th className="px-3 py-2">Type</th>
-                    <th className="px-3 py-2">Method</th>
-                    <th className="px-3 py-2">Total</th>
-                    <th className="px-3 py-2">Paid</th>
-                    <th className="px-3 py-2">Remaining</th>
-                    <th className="px-3 py-2">Name / Note</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2">Time</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  <th className="px-3 py-2">Type</th>
+                  <th className="px-3 py-2">Method</th>
+                  <th className="px-3 py-2">Amount</th>
+                  <th className="px-3 py-2">Name</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Time</th>
+                  <th className="px-3 py-2 text-right">Actions</th>
+                </tr>
+              </thead>
 
-                <tbody className="divide-y divide-gray-100">
-                  {filteredPayments.map((p) => {
-                    const time = fmtTime12h(p.createdAt);
-                    const isEditing = editingId === p.id;
-                    const tx = (p.txType ?? "cashin") as TxType;
-                    const isOut = tx === "cashout";
-                    const status: PaymentStatus = p.status ?? "pending";
+              <tbody className="divide-y divide-gray-100">
+                {filteredPayments.map((p) => {
+                  const rowId = p.id || p._id || "";
+                  const time = fmtTime12h(p.createdAt);
+                  const isEditing = editingId === rowId;
 
-                    const paidForRow =
-                      p.paidAmount ?? (status === "paid" ? p.amount : 0);
-                    const remainingForRow = Math.max(
-                      p.amount - (paidForRow || 0),
-                      0
-                    );
+                  const amountToShow = p.amountFinal ?? p.amount;
+                  const nameToShow = p.playerName || p.note || "—";
 
-                    if (isEditing) {
-                      return (
-                        <tr key={p.id} className="bg-indigo-50/40">
-                          {/* Type edit */}
-                          <td className="px-3 py-2">
-                            <select
-                              value={editTxType}
-                              onChange={(e) =>
-                                setEditTxType(e.target.value as TxType)
-                              }
-                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
-                            >
-                              <option value="cashin">Cash In</option>
-                              <option value="cashout">Cash Out</option>
-                            </select>
-                          </td>
+                  if (isEditing) {
+                    return (
+                      <tr key={rowId} className="bg-indigo-50/40">
+                        {/* Type edit */}
+                        <td className="px-3 py-2">
+                          <select
+                            value={editType}
+                            onChange={(e) =>
+                              setEditType(e.target.value as PaymentType)
+                            }
+                            className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs"
+                          >
+                            <option value="deposit">Deposit</option>
+                            <option value="redeem">Redeem</option>
+                            <option value="freeplay">Freeplay</option>
+                            <option value="cashin">Cash In</option>
+                            <option value="cashout">Cash Out</option>
+                          </select>
+                        </td>
 
-                          {/* Method edit */}
-                          <td className="px-3 py-2">
-                            <select
-                              value={editMethod}
-                              onChange={(e) =>
-                                setEditMethod(e.target.value as PaymentMethod)
-                              }
-                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
-                            >
-                              <option value="cashapp">Cash App</option>
-                              <option value="paypal">PayPal</option>
-                              <option value="chime">Chime</option>
-                            </select>
-                          </td>
+                        {/* Method edit */}
+                        <td className="px-3 py-2">
+                          <select
+                            value={editMethod}
+                            onChange={(e) =>
+                              setEditMethod(e.target.value as PaymentMethod)
+                            }
+                            className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs"
+                          >
+                            <option value="cashapp">Cash App</option>
+                            <option value="paypal">PayPal</option>
+                            <option value="chime">Chime</option>
+                          </select>
+                        </td>
 
-                          {/* Total amount edit */}
-                          <td className="px-3 py-2">
-                            <input
-                              type="number"
-                              value={editAmount}
-                              onChange={(e) => setEditAmount(e.target.value)}
-                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
-                              step="0.01"
-                              min={0.01}
-                            />
-                          </td>
+                        {/* Amount edit */}
+                        <td className="px-3 py-2">
+                          <input
+                            type="number"
+                            value={editAmount}
+                            onChange={(e) => setEditAmount(e.target.value)}
+                            className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs"
+                            step="0.01"
+                            min={0.01}
+                          />
+                        </td>
 
-                          {/* Paid amount edit */}
-                          <td className="px-3 py-2">
-                            <input
-                              type="number"
-                              value={editPaidAmount}
-                              onChange={(e) =>
-                                setEditPaidAmount(e.target.value)
-                              }
-                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
-                              step="0.01"
-                              min={0}
-                              max={Number(editAmount) || undefined}
-                            />
-                          </td>
+                        {/* Name (playerName) edit */}
+                        <td className="px-3 py-2">
+                          <input
+                            type="text"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs"
+                            placeholder="Name"
+                          />
+                        </td>
 
-                          {/* Remaining – read-only preview */}
-                          <td className="px-3 py-2 text-orange-600 font-medium">
-                            {fmtUSD(
-                              Math.max(
-                                Number(editAmount || 0) -
-                                  Number(editPaidAmount || 0),
-                                0
+                        {/* Status edit */}
+                        <td className="px-3 py-2">
+                          <select
+                            value={editStatus}
+                            onChange={(e) =>
+                              setEditStatus(
+                                e.target.value as PaymentStatus
                               )
-                            )}
-                          </td>
-
-                          {/* Name / Note edit */}
-                          <td className="px-3 py-2">
-                            <input
-                              type="text"
-                              value={editNote}
-                              onChange={(e) => setEditNote(e.target.value)}
-                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
-                              placeholder="Name / Note"
-                            />
-                          </td>
-
-                          {/* Status edit */}
-                          <td className="px-3 py-2">
-                            <select
-                              value={editStatus}
-                              onChange={(e) =>
-                                setEditStatus(e.target.value as PaymentStatus)
-                              }
-                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
-                            >
-                              <option value="pending">Pending</option>
-                              <option value="paying">Paying</option>
-                              <option value="paid">Paid</option>
-                              <option value="remaining">Remaining</option>
-                            </select>
-                          </td>
-
-                          {/* Time */}
-                          <td className="px-3 py-2 text-gray-500">{time}</td>
-
-                          {/* Actions */}
-                          <td className="px-3 py-2">
-                            <div className="flex justify-end gap-2">
-                              <button
-                                type="button"
-                                onClick={() => saveEdit(p.id)}
-                                className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
-                              >
-                                <Check className="h-3 w-3" />
-                                Save
-                              </button>
-                              <button
-                                type="button"
-                                onClick={cancelEdit}
-                                className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                              >
-                                <X className="h-3 w-3" />
-                                Cancel
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    }
-
-                    // normal row
-                    return (
-                      <tr key={p.id} className="hover:bg-gray-50">
-                        {/* Type badge */}
-                        <td className="px-3 py-2">
-                          <span
-                            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                              isOut
-                                ? "bg-red-50 text-red-700 border border-red-100"
-                                : "bg-emerald-50 text-emerald-700 border border-emerald-100"
-                            }`}
+                            }
+                            className="w-full rounded-md border border-gray-300 px-2 py-1 text-xs"
                           >
-                            {isOut ? "Cash Out" : "Cash In"}
-                          </span>
+                            <option value="pending">Pending</option>
+                            <option value="paying">Paying</option>
+                            <option value="paid">Paid</option>
+                            <option value="remaining">Remaining</option>
+                          </select>
                         </td>
 
-                        {/* Method */}
-                        <td className="px-3 py-2 capitalize">{p.method}</td>
-
-                        {/* Total */}
-                        <td className="px-3 py-2 font-medium text-gray-800">
-                          {fmtUSD(p.amount)}
-                        </td>
-
-                        {/* Paid */}
-                        <td className="px-3 py-2 font-medium text-emerald-600">
-                          {fmtUSD(paidForRow)}
-                        </td>
-
-                        {/* Remaining */}
-                        <td className="px-3 py-2 font-medium text-orange-600">
-                          {fmtUSD(remainingForRow)}
-                        </td>
-
-                        {/* Name / Note */}
-                        <td className="px-3 py-2 text-gray-600">
-                          {p.note ? (
-                            <span>{p.note}</span>
-                          ) : (
-                            <span className="italic text-gray-400">—</span>
-                          )}
-                        </td>
-
-                        {/* Status badge */}
-                        <td className="px-3 py-2">
-                          {renderStatusBadge(p.status)}
-                        </td>
-
-                        {/* Time */}
+                        {/* Time (read-only) */}
                         <td className="px-3 py-2 text-gray-500">{time}</td>
 
                         {/* Actions */}
@@ -563,226 +426,86 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                           <div className="flex justify-end gap-2">
                             <button
                               type="button"
-                              onClick={() => startEdit(p)}
-                              className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                              onClick={() => saveEdit(rowId)}
+                              className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
                             >
-                              <Pencil className="h-3 w-3" />
-                              Edit
+                              <Check className="h-3 w-3" />
+                              Save
                             </button>
                             <button
                               type="button"
-                              onClick={() => openDeleteModal(p)}
-                              className="inline-flex items-center gap-1 rounded-md bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+                              onClick={cancelEdit}
+                              className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
                             >
-                              <Trash2 className="h-3 w-3" />
-                              Delete
+                              <X className="h-3 w-3" />
+                              Cancel
                             </button>
                           </div>
                         </td>
                       </tr>
                     );
-                  })}
-                </tbody>
-              </table>
-            ) : (
-              /* 🔼 NORMAL TABLE for all / cashin views (no Total/Paid/Remaining columns) */
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    <th className="px-3 py-2">Type</th>
-                    <th className="px-3 py-2">Method</th>
-                    <th className="px-3 py-2">Amount</th>
-                    <th className="px-3 py-2">Note</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2">Time</th>
-                    <th className="px-3 py-2 text-right">Actions</th>
-                  </tr>
-                </thead>
+                  }
 
-                <tbody className="divide-y divide-gray-100">
-                  {filteredPayments.map((p) => {
-                    const time = fmtTime12h(p.createdAt);
-                    const isEditing = editingId === p.id;
-                    const tx = (p.txType ?? "cashin") as TxType;
-                    const isOut = tx === "cashout";
+                  // normal row
+                  return (
+                    <tr key={rowId} className="hover:bg-gray-50">
+                      {/* Type */}
+                      <td className="px-3 py-2">
+                        {renderTypeBadge(p.type)}
+                      </td>
 
-                    if (isEditing) {
-                      return (
-                        <tr key={p.id} className="bg-indigo-50/40">
-                          {/* Type edit */}
-                          <td className="px-3 py-2">
-                            <select
-                              value={editTxType}
-                              onChange={(e) =>
-                                setEditTxType(e.target.value as TxType)
-                              }
-                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
-                            >
-                              <option value="cashin">Cash In</option>
-                              <option value="cashout">Cash Out</option>
-                            </select>
-                          </td>
+                      {/* Method */}
+                      <td className="px-3 py-2 capitalize">{p.method}</td>
 
-                          {/* Method edit */}
-                          <td className="px-3 py-2">
-                            <select
-                              value={editMethod}
-                              onChange={(e) =>
-                                setEditMethod(e.target.value as PaymentMethod)
-                              }
-                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
-                            >
-                              <option value="cashapp">Cash App</option>
-                              <option value="paypal">PayPal</option>
-                              <option value="chime">Chime</option>
-                            </select>
-                          </td>
+                      {/* Amount */}
+                      <td className="px-3 py-2 font-medium text-gray-800">
+                        {fmtUSD(amountToShow)}
+                      </td>
 
-                          {/* Amount edit */}
-                          <td className="px-3 py-2">
-                            <input
-                              type="number"
-                              value={editAmount}
-                              onChange={(e) => setEditAmount(e.target.value)}
-                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
-                              step="0.01"
-                              min={0.01}
-                            />
-                          </td>
+                      {/* Name */}
+                      <td className="px-3 py-2 text-gray-700">
+                        {nameToShow}
+                      </td>
 
-                          {/* Note edit */}
-                          <td className="px-3 py-2">
-                            <input
-                              type="text"
-                              value={editNote}
-                              onChange={(e) => setEditNote(e.target.value)}
-                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
-                              placeholder="Note"
-                            />
-                          </td>
+                      {/* Status */}
+                      <td className="px-3 py-2">
+                        {renderStatusBadge(p.status)}
+                      </td>
 
-                          {/* Status edit */}
-                          <td className="px-3 py-2">
-                            <select
-                              value={editStatus}
-                              onChange={(e) =>
-                                setEditStatus(e.target.value as PaymentStatus)
-                              }
-                              className="w-full rounded-md border border-gray-300 px-2 py-1 text-sm"
-                            >
-                              <option value="pending">Pending</option>
-                              <option value="paying">Paying</option>
-                              <option value="paid">Paid</option>
-                              <option value="remaining">Remaining</option>
-                            </select>
-                          </td>
+                      {/* Time */}
+                      <td className="px-3 py-2 text-gray-500">{time}</td>
 
-                          {/* Time */}
-                          <td className="px-3 py-2 text-gray-500">{time}</td>
-
-                          {/* Actions */}
-                          <td className="px-3 py-2">
-                            <div className="flex justify-end gap-2">
-                              <button
-                                type="button"
-                                onClick={() => saveEdit(p.id)}
-                                className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
-                              >
-                                <Check className="h-3 w-3" />
-                                Save
-                              </button>
-                              <button
-                                type="button"
-                                onClick={cancelEdit}
-                                className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                              >
-                                <X className="h-3 w-3" />
-                                Cancel
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    }
-
-                    // normal row
-                    return (
-                      <tr key={p.id} className="hover:bg-gray-50">
-                        {/* Type badge */}
-                        <td className="px-3 py-2">
-                          <span
-                            className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                              isOut
-                                ? "bg-red-50 text-red-700 border border-red-100"
-                                : "bg-emerald-50 text-emerald-700 border border-emerald-100"
-                            }`}
+                      {/* Actions */}
+                      <td className="px-3 py-2">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => startEdit(p)}
+                            className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
                           >
-                            {isOut ? "Cash Out" : "Cash In"}
-                          </span>
-                        </td>
-
-                        {/* Method */}
-                        <td className="px-3 py-2 capitalize">{p.method}</td>
-
-                        {/* Amount with + / - */}
-                        <td
-                          className={`px-3 py-2 font-medium ${
-                            isOut ? "text-red-600" : "text-emerald-600"
-                          }`}
-                        >
-                          {isOut ? "-" : "+"}
-                          {fmtUSD(p.amount)}
-                        </td>
-
-                        {/* Note */}
-                        <td className="px-3 py-2 text-gray-600">
-                          {p.note ? (
-                            <span>{p.note}</span>
-                          ) : (
-                            <span className="italic text-gray-400">—</span>
-                          )}
-                        </td>
-
-                        {/* Status */}
-                        <td className="px-3 py-2">
-                          {renderStatusBadge(p.status)}
-                        </td>
-
-                        {/* Time */}
-                        <td className="px-3 py-2 text-gray-500">{time}</td>
-
-                        {/* Actions */}
-                        <td className="px-3 py-2">
-                          <div className="flex justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => startEdit(p)}
-                              className="inline-flex items-center gap-1 rounded-md border border-gray-300 px-2.5 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                            >
-                              <Pencil className="h-3 w-3" />
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => openDeleteModal(p)}
-                              className="inline-flex items-center gap-1 rounded-md bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                              Delete
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
+                            <Pencil className="h-3 w-3" />
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openDeleteModal(p)}
+                            className="inline-flex items-center gap-1 rounded-md bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-red-700"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
 
-      {/* Delete Confirmation Modal (unchanged) */}
+      {/* Delete Confirmation Modal */}
       {showDeleteModal && deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
@@ -797,11 +520,14 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                 <p className="mt-1 text-sm text-gray-500">
                   You&apos;re about to delete a{" "}
                   <span className="font-semibold">
-                    {fmtUSD(deleteTarget.amount)}
+                    {fmtUSD(deleteTarget.amountFinal ?? deleteTarget.amount)}
                   </span>{" "}
-                  {deleteTarget.txType === "cashout" ? "cash-out" : "cash-in"}{" "}
-                  payment via{" "}
+                  {deleteTarget.type.toUpperCase()} payment via{" "}
                   <span className="font-semibold">{deleteTarget.method}</span>{" "}
+                  for{" "}
+                  <span className="font-semibold">
+                    {deleteTarget.playerName || "Unknown"}
+                  </span>{" "}
                   on <span className="font-semibold">{deleteTarget.date}</span>.
                   This action cannot be undone.
                 </p>

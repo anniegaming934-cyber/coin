@@ -9,15 +9,15 @@ type Method = "cashapp" | "paypal" | "chime" | string;
 
 export interface GameEntryRow {
   _id: string;
-  type: EntryType; // deposit | freeplay | redeem
-  method?: Method; // optional, in case some entries don't have it
+  type: EntryType;
+  method?: Method;
   playerName?: string;
   amount: number;
   bonusAmount?: number;
   finalAmount: number;
   totalPaid?: number;
   remainingToPay?: number;
-  date: string; // stored as YYYY-MM-DD for filtering
+  date: string; // YYYY-MM-DD
 }
 
 // 2025-11-12 -> "12 Nov 2025"
@@ -36,6 +36,9 @@ const PaymentCombinedTable: React.FC = () => {
   const [rows, setRows] = useState<GameEntryRow[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // 👤 logged-in username
+  const [username, setUsername] = useState("");
+
   // filters
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState<"" | EntryType>("");
@@ -43,31 +46,44 @@ const PaymentCombinedTable: React.FC = () => {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
+  // 🔐 load username from localStorage (or wherever you saved it)
   useEffect(() => {
+    const stored = localStorage.getItem("username");
+    if (stored) {
+      setUsername(stored);
+    }
+  }, []);
+
+  useEffect(() => {
+    // don’t fetch anything until we know who is logged in
+    if (!username) return;
+
     const load = async () => {
       setLoading(true);
       try {
-        // 🔗 All data comes from /api/game-entries
-        const res = await apiClient.get("/api/game-entries");
+        // 🔗 Only fetch entries for this username
+        const res = await apiClient.get("/api/game-entries", {
+          params: { username },
+        });
+
         const data = res.data || [];
 
         const mapped: GameEntryRow[] = data.map((e: any) => {
-          const amount = Number(e.amount || 0);
-          const bonus = Number(e.bonusAmount || 0);
-          const finalAmount = amount + bonus;
+          const amountBase = Number(e.amountBase ?? 0);
+          const bonus = Number(e.bonusAmount ?? 0);
+          // prefer amountFinal from backend; fallback to base+bonus
+          const finalAmount = Number(e.amountFinal ?? amountBase + bonus);
 
           return {
             _id: e._id,
-            type: e.type as EntryType, // "deposit" | "freeplay" | "redeem"
-            method: e.method, // optional, if you send it
+            type: e.type as EntryType,
+            method: e.method,
             playerName: e.playerName || "",
-            amount,
+            amount: amountBase,
             bonusAmount: bonus,
             finalAmount,
-            // if backend sends these, we use them; otherwise default to simple values
             totalPaid: e.totalPaid ?? finalAmount,
-            remainingToPay: e.remainingToPay ?? 0,
-            // keep ISO format for filters (YYYY-MM-DD)
+            remainingToPay: e.remainingPay ?? 0, // backend field is remainingPay
             date: e.date || e.createdAt?.slice(0, 10) || "",
           };
         });
@@ -81,7 +97,7 @@ const PaymentCombinedTable: React.FC = () => {
     };
 
     load();
-  }, []);
+  }, [username]); // 👈 refetch if username changes
 
   const filteredRows = useMemo(
     () =>
@@ -172,10 +188,24 @@ const PaymentCombinedTable: React.FC = () => {
     setDateTo("");
   };
 
+  // if no username, show friendly message instead of empty table
+  if (!username) {
+    return (
+      <div className="p-4 bg-white rounded-xl shadow space-y-2">
+        <h2 className="text-xl font-bold">Game Entries</h2>
+        <p className="text-sm text-gray-500">
+          No username found. Please sign in first before viewing entries.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="p-4 bg-white rounded-xl shadow space-y-4">
       <div className="flex flex-wrap justify-between gap-3 items-center">
-        <h2 className="text-xl font-bold">Game Entries</h2>
+        <h2 className="text-xl font-bold">
+          Game Entries for <span className="text-blue-600">{username}</span>
+        </h2>
         <span className="text-sm text-gray-500">
           Showing <strong>{filteredRows.length}</strong> of{" "}
           <strong>{rows.length}</strong> records
@@ -269,7 +299,7 @@ const PaymentCombinedTable: React.FC = () => {
         </div>
       </div>
 
-      <DataTable columns={columns} data={filteredRows} loading={loading} />
+      <DataTable columns={columns} data={filteredRows} isLoading={loading} />
     </div>
   );
 };
