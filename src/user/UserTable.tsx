@@ -53,7 +53,6 @@ const UserTable: React.FC<UserTableProps> = ({ username }) => {
         apiClient.get(GAMES_API),
         apiClient.get(GAME_ENTRIES_API, { params: { username } }),
       ]);
-
       if (Array.isArray(gamesRes.data)) setGames(gamesRes.data);
       if (Array.isArray(entriesRes.data)) setEntries(entriesRes.data);
     } catch (e) {

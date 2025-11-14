@@ -4,20 +4,19 @@ import { DataTable } from "../DataTable";
 
 export type EntryType = "freeplay" | "deposit" | "redeem";
 
-// ✅ Supports both old + new fields
 export interface GameEntry {
   _id: string;
   type: EntryType;
   playerName: string;
   gameName?: string;
-  amount: number; // often final amount
-  amountBase?: number; // optional base before bonus
-  bonusRate?: number; // optional %
-  bonusAmount?: number; // optional absolute bonus
-  amountFinal?: number; // optional final (if different from amount)
+  amount: number;
+  amountBase?: number;
+  bonusRate?: number;
+  bonusAmount?: number;
+  amountFinal?: number;
   note?: string;
-  date?: string; // ISO string
-  createdAt: string; // ISO string
+  date?: string;
+  createdAt: string;
 }
 
 interface RecentEntriesTableProps {
@@ -37,40 +36,69 @@ const fmtMoney = (n?: number) =>
 const fmtPct = (n?: number) =>
   n == null || Number.isNaN(n) ? "–" : `${n.toFixed(2)}%`;
 
-// 🔧 Format: "12 nov 2025"
+/* -------------------------------------------------------
+    🕒 NEPAL TIME FORMATTERS
+------------------------------------------------------- */
+
+// Convert any ISO → Date in Nepal timezone
+const toNepalDate = (iso: string) =>
+  new Date(
+    new Date(iso).toLocaleString("en-US", { timeZone: "Asia/Kathmandu" })
+  );
+
+// Date format → "12 nov 2025"
 const formatDateLabel = (d: Date) => {
-  const day = d.getDate(); // 1..31
-  const mon = d.toLocaleString("en-US", { month: "short" }).toLowerCase(); // "nov"
-  const yr = d.getFullYear();
+  const day = d.toLocaleString("en-US", {
+    timeZone: "Asia/Kathmandu",
+    day: "numeric",
+  });
+
+  const mon = d
+    .toLocaleString("en-US", {
+      timeZone: "Asia/Kathmandu",
+      month: "short",
+    })
+    .toLowerCase();
+
+  const yr = d.toLocaleString("en-US", {
+    timeZone: "Asia/Kathmandu",
+    year: "numeric",
+  });
+
   return `${day} ${mon} ${yr}`;
 };
 
-// 🔧 Format 12-hr with am/pm (lowercase), e.g. "03:45 pm"
+// Time format → "03:45 pm"
 const formatTimeLabel = (d: Date) => {
-  const t = d.toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: true,
-  });
-  return t.toLowerCase(); // "03:45 pm"
+  return d
+    .toLocaleTimeString([], {
+      timeZone: "Asia/Kathmandu",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    })
+    .toLowerCase();
 };
+
+/* -------------------------------------------------------
+    🧮 TABLE
+------------------------------------------------------- */
 
 const RecentEntriesTable: React.FC<RecentEntriesTableProps> = ({
   recent,
   onRefresh,
   title = "Recent Entries",
 }) => {
-  // 🔎 Build normalized rows with derived bonus fields (works with partial data)
   const rows = useMemo(() => {
     return recent.map((r) => {
       const whenISO = r.date || r.createdAt;
-      const when = new Date(whenISO);
+
+      const whenNepal = toNepalDate(whenISO);
 
       const finalAmt = r.amountFinal ?? r.amount ?? 0;
+
       const baseAmt =
-        r.amountBase ??
-        // If it's a redeem, assume no bonus → base ≈ final
-        (r.type === "redeem" ? finalAmt : undefined);
+        r.amountBase ?? (r.type === "redeem" ? finalAmt : undefined);
 
       const bonusAmt =
         r.bonusAmount ??
@@ -84,8 +112,8 @@ const RecentEntriesTable: React.FC<RecentEntriesTableProps> = ({
 
       return {
         ...r,
-        _whenDate: formatDateLabel(when), // 👈 "12 nov 2025"
-        _whenTime: formatTimeLabel(when), // 👈 "03:45 pm"
+        _whenDate: formatDateLabel(whenNepal), // NEPAL DATE
+        _whenTime: formatTimeLabel(whenNepal), // NEPAL TIME
         _finalAmount: finalAmt,
         _baseAmount: baseAmt,
         _bonusAmount: bonusAmt,
@@ -101,9 +129,15 @@ const RecentEntriesTable: React.FC<RecentEntriesTableProps> = ({
       {
         header: "Date",
         accessorKey: "_whenDate",
-        sortingFn: (a, b) =>
-          new Date(a.original.date || a.original.createdAt).getTime() -
-          new Date(b.original.date || b.original.createdAt).getTime(),
+        sortingFn: (a, b) => {
+          const ta = new Date(
+            toNepalDate(a.original.date || a.original.createdAt)
+          ).getTime();
+          const tb = new Date(
+            toNepalDate(b.original.date || b.original.createdAt)
+          ).getTime();
+          return ta - tb;
+        },
         cell: ({ row }) => row.original._whenDate,
       },
       {
@@ -139,6 +173,7 @@ const RecentEntriesTable: React.FC<RecentEntriesTableProps> = ({
           const r = row.original;
           const hasBonus =
             r._bonusAmount != null && r._bonusAmount > 0 && r.type !== "redeem";
+
           return hasBonus
             ? `${fmtMoney(r._bonusAmount)} (${fmtPct(r._bonusRate)})`
             : "–";

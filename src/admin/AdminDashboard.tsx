@@ -116,7 +116,6 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
   // ---------------------------
   // Aggregated stats (all games)
   // ---------------------------
-  // NOTE: keeping your original semantics
   const totalFreeplay = games.reduce(
     (sum, g) => sum + (Number(g.coinsEarned) || 0),
     0
@@ -195,7 +194,6 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
   };
 
   const handleResetRecharge = async (id: number) => {
-    // Try a dedicated reset route; fallback to PUT
     try {
       try {
         await apiClient.post(`${GAMES_API}/${id}/reset-recharge`);
@@ -205,7 +203,6 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
           lastRechargeDate: null,
         });
       }
-      // update local state
       setGames((prev) =>
         prev.map((g) =>
           g.id === id
@@ -406,7 +403,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
             <>
               {/* Summary table */}
               <div className="w-full mb-8">
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify_between mb-2">
                   <h2 className="text-lg font-semibold text-gray-800">
                     Summary
                   </h2>
@@ -547,6 +544,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
             />
           )}
 
+          {/* USER HISTORY TAB */}
           {activeSection === "userHistroy" && selectedUserId && (
             <UserHistory userId={selectedUserId} />
           )}
@@ -581,7 +579,6 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
           }}
           onCancel={() => setEditingGameId(null)}
           onDelete={() => {}}
-          // ✅ pass through to satisfy GameRowProps and enable modal reset
           onResetRecharge={handleResetRecharge}
         />
       )}

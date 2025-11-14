@@ -19,7 +19,7 @@ import PaymentCombinedTable from "./PaymentCombinedTable";
 const GAMES_API = "/api/games";
 const PAY_API = "/api"; // /api/payments/cashin, /api/payments/cashout, /api/reset, /api/totals
 const COIN_VALUE = 0.15;
-
+const GAME_ENTRIES_API = "/api/game-entries";
 interface UserDashboardProps {
   username: string;
   onLogout: () => void;
@@ -58,7 +58,10 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
 
   const loadRecent = async () => {
     try {
-      const { data } = await apiClient.get<GameEntry[]>("/api/game-entries");
+      const { data } = await apiClient.get<GameEntry[]>(GAME_ENTRIES_API, {
+        params: { username },
+      });
+
       setRecent(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error("Failed to load recent entries:", err);

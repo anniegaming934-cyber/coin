@@ -23,6 +23,10 @@ export interface UserHistoryTotals {
   totalCashIn: number;
   totalCashOut: number;
   totalRedeem: number;
+
+  // 🔹 new (optional, so it won't break if backend not ready yet)
+  totalPoint?: number;
+  totalPaid?: number;
 }
 
 export interface UserHistoryUser {
@@ -121,6 +125,17 @@ const UserHistory: FC<UserHistoryProps> = ({ userId }) => {
     []
   );
 
+  const safeTotals = totals || {
+    totalGames: 0,
+    totalDeposit: 0,
+    totalFreeplay: 0,
+    totalCashIn: 0,
+    totalCashOut: 0,
+    totalRedeem: 0,
+    totalPoint: 0,
+    totalPaid: 0,
+  };
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -134,44 +149,54 @@ const UserHistory: FC<UserHistoryProps> = ({ userId }) => {
       </div>
 
       {/* Totals summary */}
-      {totals && (
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-          <div className="p-3 border rounded-md">
-            <div className="text-xs text-gray-500">Total Games</div>
-            <div className="text-lg font-semibold">{totals.totalGames}</div>
-          </div>
-          <div className="p-3 border rounded-md">
-            <div className="text-xs text-gray-500">Total Deposit</div>
-            <div className="text-lg font-semibold">
-              {fmtAmount(totals.totalDeposit)}
-            </div>
-          </div>
-          <div className="p-3 border rounded-md">
-            <div className="text-xs text-gray-500">Total Freeplay</div>
-            <div className="text-lg font-semibold">
-              {fmtAmount(totals.totalFreeplay)}
-            </div>
-          </div>
-          <div className="p-3 border rounded-md">
-            <div className="text-xs text-gray-500">Total Cash In</div>
-            <div className="text-lg font-semibold">
-              {fmtAmount(totals.totalCashIn)}
-            </div>
-          </div>
-          <div className="p-3 border rounded-md">
-            <div className="text-xs text-gray-500">Total Cash Out</div>
-            <div className="text-lg font-semibold">
-              {fmtAmount(totals.totalCashOut)}
-            </div>
-          </div>
-          <div className="p-3 border rounded-md">
-            <div className="text-xs text-gray-500">Total Redeem</div>
-            <div className="text-lg font-semibold">
-              {fmtAmount(totals.totalRedeem)}
-            </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+        <div className="p-3 border rounded-md">
+          <div className="text-xs text-gray-500">Total Games</div>
+          <div className="text-lg font-semibold">{safeTotals.totalGames}</div>
+        </div>
+
+        <div className="p-3 border rounded-md">
+          <div className="text-xs text-gray-500">Total Cash In</div>
+          <div className="text-lg font-semibold">
+            {fmtAmount(safeTotals.totalCashIn)}
           </div>
         </div>
-      )}
+
+        <div className="p-3 border rounded-md">
+          <div className="text-xs text-gray-500">Total Cash Out</div>
+          <div className="text-lg font-semibold">
+            {fmtAmount(safeTotals.totalCashOut)}
+          </div>
+        </div>
+
+        <div className="p-3 border rounded-md">
+          <div className="text-xs text-gray-500">Total Freeplay</div>
+          <div className="text-lg font-semibold">
+            {fmtAmount(safeTotals.totalFreeplay)}
+          </div>
+        </div>
+
+        <div className="p-3 border rounded-md">
+          <div className="text-xs text-gray-500">Total Redeem</div>
+          <div className="text-lg font-semibold">
+            {fmtAmount(safeTotals.totalRedeem)}
+          </div>
+        </div>
+
+        <div className="p-3 border rounded-md">
+          <div className="text-xs text-gray-500">Total Point</div>
+          <div className="text-lg font-semibold">
+            {fmtAmount(safeTotals.totalPoint ?? 0)}
+          </div>
+        </div>
+
+        <div className="p-3 border rounded-md">
+          <div className="text-xs text-gray-500">Total Paid</div>
+          <div className="text-lg font-semibold">
+            {fmtAmount(safeTotals.totalPaid ?? 0)}
+          </div>
+        </div>
+      </div>
 
       {/* History table */}
       <DataTable<UserHistoryItem, any>
