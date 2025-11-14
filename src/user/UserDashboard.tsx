@@ -12,6 +12,7 @@ import type { Game } from "../admin/Gamerow";
 import GameEntryForm from "./GameEntryForm";
 import RecentEntriesTable, { GameEntry } from "./RecentEntriesTable";
 import PaymentCombinedTable from "./PaymentCombinedTable";
+import UserCashoutTable from "./UserCashout";
 
 // -----------------------------
 // Constants
@@ -20,6 +21,7 @@ const GAMES_API = "/api/games";
 const PAY_API = "/api"; // /api/payments/cashin, /api/payments/cashout, /api/reset, /api/totals
 const COIN_VALUE = 0.15;
 const GAME_ENTRIES_API = "/api/game-entries";
+
 interface UserDashboardProps {
   username: string;
   onLogout: () => void;
@@ -44,7 +46,8 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
     fetchGames();
     loadRecent();
     preloadTotals();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [username]);
 
   const fetchGames = async () => {
     try {
@@ -111,14 +114,10 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
         ? `${PAY_API}/payments/cashout`
         : `${PAY_API}/payments/cashin`;
 
-    // Client-side guard for better UX (backend also enforces this)
     if (txType === "cashout" && !playerName?.trim()) {
       throw new Error("Player name is required for cash out");
     }
 
-    // Build payloads exactly as backend expects:
-    // cashin:  { amount, method, note?, playerName?, date? }
-    // cashout: { amount, method, playerName, totalPaid?, totalCashout?, date? }
     const payload: any = { amount, method, date };
 
     if (txType === "cashin") {
@@ -132,7 +131,6 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
 
     try {
       const { data } = await apiClient.post(endpoint, payload);
-      // backend returns { ok, payment, totals }
       if (data?.totals) setPaymentTotals(data.totals);
     } catch (err: any) {
       const msg =
@@ -190,24 +188,30 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
         </header>
 
         <main className="flex-1 overflow-y-auto p-4 sm:p-8">
-          {/* OVERVIEW TAB – entries + payments */}
+          {/* OVERVIEW TAB */}
           {activeSection === "overview" && (
             <>
               <div className="grid grid-cols-1 gap-6 mb-8">
                 <GameEntryForm />
               </div>
-
               <div className="grid grid-cols-1 gap-6 mb-8">
-                <PaymentCombinedTable />
+                <UserCashoutTable />
               </div>
             </>
           )}
 
-          {/* GAMES TAB – only games table */}
+          {/* GAME ENTRIES / PAYMENTS COMBINED TAB */}
+          {activeSection === "gameEntries" && (
+            <div className="mt-4">
+              <PaymentCombinedTable />
+            </div>
+          )}
+
+          {/* GAMES TAB – per-user games table */}
           {activeSection === "games" && (
             <div className="mt-4">
-              {/* If your UserTable accepts username, pass it: <UserTable username={username} /> */}
-              <UserTable mode="user" />
+              {/* 👇 now correctly filtered by logged-in username */}
+              <UserTable username={username} />
             </div>
           )}
 

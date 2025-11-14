@@ -14,6 +14,8 @@ import {
   ChevronRight,
   Info,
   UserRoundPlus,
+  Calculator,
+  Gamepad,
   FileUser,
 } from "lucide-react";
 
@@ -25,6 +27,8 @@ export type SidebarSection =
   | "userHistroy"
   | "depositRecord"
   | "paymentsHistory"
+  | "gameEntries"
+  | "employeeSalary"
   | "playerinfo"
   | "settings";
 
@@ -54,6 +58,7 @@ const Sidebar: FC<SidebarProps> = ({
     [
       { id: "overview", label: "Overview", icon: LayoutDashboard },
       { id: "games", label: "Games", icon: Gamepad2 },
+      { id: "gameEntries", label: "Game Entries", icon: Gamepad },
       { id: "charts", label: "Charts", icon: BarChart2 },
       { id: "paymentsHistory", label: "Payment History", icon: Wallet },
       { id: "depositRecord", label: "Deposit Record", icon: FileUser },
@@ -68,7 +73,9 @@ const Sidebar: FC<SidebarProps> = ({
       { id: "charts", label: "Charts", icon: BarChart2 },
       { id: "UserAdminTable", label: "UserAdmin Table", icon: User },
       { id: "playerinfo", label: "Player Info", icon: Info },
-      { id: "userHistroy", label: "User History", icon: UserRoundPlus },
+      { id: "userHistroy", label: "User History", icon: Calculator },
+      { id: "employeeSalary", label: "Salary Sheet", icon: UserRoundPlus },
+
       { id: "settings", label: "Settings", icon: Settings },
     ];
 

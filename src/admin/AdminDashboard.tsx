@@ -21,6 +21,8 @@ import {
   TrendingUp,
   Gamepad,
 } from "lucide-react";
+import SalaryTable from "./SalaryTable";
+import SalaryForm from "./SalaryForm";
 
 interface Game {
   id: number;
@@ -548,6 +550,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
           {activeSection === "userHistroy" && selectedUserId && (
             <UserHistory userId={selectedUserId} />
           )}
+          {activeSection === "employeeSalary" && <SalaryForm />}
 
           {/* SETTINGS TAB */}
           {activeSection === "settings" && (

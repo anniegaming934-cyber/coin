@@ -51,8 +51,12 @@ const UserTable: React.FC<UserTableProps> = ({ username }) => {
     try {
       const [gamesRes, entriesRes] = await Promise.all([
         apiClient.get(GAMES_API),
-        apiClient.get(GAME_ENTRIES_API, { params: { username } }),
+        apiClient.get(GAME_ENTRIES_API, {
+          // 👇 send filter only if we actually have a username
+          params: username ? { username: username } : {},
+        }),
       ]);
+
       if (Array.isArray(gamesRes.data)) setGames(gamesRes.data);
       if (Array.isArray(entriesRes.data)) setEntries(entriesRes.data);
     } catch (e) {
@@ -64,6 +68,7 @@ const UserTable: React.FC<UserTableProps> = ({ username }) => {
 
   useEffect(() => {
     fetchAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [username]);
 
   /** Aggregate entries by gameName */

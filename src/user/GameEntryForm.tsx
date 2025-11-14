@@ -9,6 +9,8 @@ type PaymentMethod = (typeof methods)[number];
 
 const GAMES_API_PATH = "/api/games"; // GET /api/games?q=...
 
+type EntryMode = "our" | "player";
+
 function useDebounce<T>(value: T, delay = 250) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -27,6 +29,8 @@ const getToday = () => {
 };
 
 const GameEntryForm: React.FC = () => {
+  const [entryMode, setEntryMode] = useState<EntryMode>("our");
+
   const [type, setType] = useState<EntryType>("deposit");
   const [isCashIn, setIsCashIn] = useState(true); // deposit vs redeem
   const [method, setMethod] = useState<PaymentMethod>("cashapp");
@@ -39,7 +43,11 @@ const GameEntryForm: React.FC = () => {
   const [date, setDate] = useState(getToday());
   const [bonusRate, setBonusRate] = useState<number>(10);
 
-  // ===== multiple game selection =====
+  // === pending toggle + pending player tag for OUR TAG redeem ===
+  const [isPending, setIsPending] = useState(false);
+  const [pendingPlayerTag, setPendingPlayerTag] = useState("");
+
+  // ===== multiple game selection (OUR TAG MODE) =====
   const [selectedGames, setSelectedGames] = useState<string[]>([]);
   const [amountsByGame, setAmountsByGame] = useState<Record<string, string>>(
     {}
@@ -62,6 +70,23 @@ const GameEntryForm: React.FC = () => {
   const gameInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // ===== PLAYER TAG MODE specific state =====
+  const [ptPlayerTag, setPtPlayerTag] = useState("");
+  const [ptGameName, setPtGameName] = useState("");
+  const [ptAmount, setPtAmount] = useState("");
+  const [ptCashoutAmount, setPtCashoutAmount] = useState("");
+
+  // extra money toggle + amount for player tag mode
+  const [extraMoneyEnabled, setExtraMoneyEnabled] = useState(false);
+  const [extraMoney, setExtraMoney] = useState("");
+
+  const ptReduction = useMemo(() => {
+    const dep = Number(ptAmount) || 0;
+    const cashout = Number(ptCashoutAmount) || 0;
+    const diff = dep - cashout;
+    return diff > 0 ? diff : 0;
+  }, [ptAmount, ptCashoutAmount]);
+
   // 🔐 Load username from localStorage ONLY
   useEffect(() => {
     const stored = localStorage.getItem("username");
@@ -71,21 +96,37 @@ const GameEntryForm: React.FC = () => {
     }
   }, []);
 
-  // keep switch ↔ type in sync
+  // keep switch ↔ type in sync (OUR TAG MODE only)
   useEffect(() => {
+    if (entryMode === "player") return; // ignore in player-tag mode
     if (type === "freeplay") return;
     setIsCashIn(type === "deposit");
-  }, [type]);
+  }, [type, entryMode]);
 
   function setFlow(cashin: boolean) {
     setIsCashIn(cashin);
-    if (type !== "freeplay") {
+    if (entryMode === "our" && type !== "freeplay") {
       setType(cashin ? "deposit" : "redeem");
     }
   }
 
-  // Prefetch names by type
+  // When switching to PLAYER TAG mode, force deposit flow
   useEffect(() => {
+    if (entryMode === "player") {
+      setType("deposit");
+      setIsCashIn(true);
+      setIsPending(false);
+      setPendingPlayerTag("");
+
+      // reset extra money when entering player mode
+      setExtraMoneyEnabled(false);
+      setExtraMoney("");
+    }
+  }, [entryMode]);
+
+  // Prefetch names by type (OUR TAG MODE)
+  useEffect(() => {
+    if (entryMode !== "our") return;
     let cancelled = false;
     (async () => {
       if (namesByType[type]?.length) return;
@@ -109,10 +150,11 @@ const GameEntryForm: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [type, namesByType]);
+  }, [type, namesByType, entryMode]);
 
-  // Suggestions on typing
+  // Suggestions on typing (OUR TAG MODE)
   useEffect(() => {
+    if (entryMode !== "our") return;
     const q = debouncedGameQuery.trim();
     if (!q) {
       const cached = namesByType[type] || [];
@@ -171,9 +213,9 @@ const GameEntryForm: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [debouncedGameQuery, type, namesByType, selectedGames]);
+  }, [debouncedGameQuery, type, namesByType, selectedGames, entryMode]);
 
-  // click-outside to close
+  // click-outside to close (OUR TAG MODE)
   useEffect(() => {
     function onDocClick(e: MouseEvent) {
       if (
@@ -190,7 +232,7 @@ const GameEntryForm: React.FC = () => {
     return () => document.removeEventListener("mousedown", onDocClick);
   }, []);
 
-  // ===== per-game amounts & bonus helpers =====
+  // ===== per-game amounts & bonus helpers (OUR TAG MODE) =====
   const parseAmount = (v: string) => {
     const n = Number(v);
     return Number.isFinite(n) ? n : 0;
@@ -207,7 +249,7 @@ const GameEntryForm: React.FC = () => {
     }, {} as Record<string, { base: number; bonus: number; finalAmt: number }>);
   }, [selectedGames, amountsByGame, bonusRate, type]);
 
-  // --- Cashout totals ---
+  // --- Cashout totals (OUR TAG MODE) ---
   const totalCashout = useMemo(() => {
     if (type !== "redeem") return 0;
     return selectedGames.reduce(
@@ -221,9 +263,11 @@ const GameEntryForm: React.FC = () => {
     () => Number(totalPaidInput) || 0,
     [totalPaidInput]
   );
+
+  // Remaining Pay = Total Cost - Total Paid
   const remainingPay = useMemo(() => {
     if (type !== "redeem") return 0;
-    const rem = totalPaid - totalCashout;
+    const rem = totalCashout - totalPaid;
     return rem > 0 ? rem : 0;
   }, [type, totalPaid, totalCashout]);
 
@@ -231,10 +275,10 @@ const GameEntryForm: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
 
-  // ✅ method only required for deposit/redeem
+  // ✅ method only required for deposit/redeem in OUR TAG MODE
   const needsMethod = type !== "freeplay";
 
-  const canSubmit = useMemo(() => {
+  const canSubmitOur = useMemo(() => {
     if (!username.trim()) return false; // must be logged in
     if (!playerName.trim()) return false;
     if (needsMethod && !method) return false;
@@ -243,7 +287,10 @@ const GameEntryForm: React.FC = () => {
       const base = parseAmount(amountsByGame[g] || "");
       if (!(base > 0)) return false;
     }
-    if (type === "redeem" && !(totalPaid > 0)) return false;
+    // if redeem is pending, require a pending player tag
+    if (type === "redeem" && isPending && !pendingPlayerTag.trim()) {
+      return false;
+    }
     return true;
   }, [
     username,
@@ -253,10 +300,35 @@ const GameEntryForm: React.FC = () => {
     selectedGames,
     amountsByGame,
     type,
-    totalPaid,
+    isPending,
+    pendingPlayerTag,
   ]);
 
-  // ===== token helpers =====
+  const canSubmitPlayer = useMemo(() => {
+    if (!username.trim()) return false;
+    if (!ptPlayerTag.trim()) return false;
+    if (!ptGameName.trim()) return false;
+    if (!method) return false;
+    if (!(Number(ptAmount) > 0)) return false;
+
+    // if extra money enabled, must be > 0
+    if (extraMoneyEnabled && !(Number(extraMoney) > 0)) return false;
+
+    // cashout and reduction can be 0
+    return true;
+  }, [
+    username,
+    ptPlayerTag,
+    ptGameName,
+    method,
+    ptAmount,
+    extraMoneyEnabled,
+    extraMoney,
+  ]);
+
+  const canSubmit = entryMode === "our" ? canSubmitOur : canSubmitPlayer;
+
+  // ===== token helpers (OUR TAG MODE) =====
   function addGameToken(raw: string) {
     const name = raw.trim();
     if (!name) return;
@@ -328,78 +400,120 @@ const GameEntryForm: React.FC = () => {
 
     setSaving(true);
     try {
-      // snapshot of current games
-      const gamesToSave = [...selectedGames];
+      if (entryMode === "our") {
+        // ===== OUR TAG MODE SAVE =====
+        const gamesToSave = [...selectedGames];
 
-      await Promise.all(
-        gamesToSave.map((gname) => {
-          const calc = perGameCalc[gname] || {
-            base: 0,
-            bonus: 0,
-            finalAmt: 0,
-          };
-          const base = calc.base;
-          const bonus = calc.bonus;
-          const finalAmt = calc.finalAmt;
+        await Promise.all(
+          gamesToSave.map((gname) => {
+            const calc = perGameCalc[gname] || {
+              base: 0,
+              bonus: 0,
+              finalAmt: 0,
+            };
+            const base = calc.base;
+            const bonus = calc.bonus;
+            const finalAmt = calc.finalAmt;
 
-          // ✅ payload aligned with backend
-          return apiClient.post("/api/game-entries", {
-            type, // "freeplay" | "deposit" | "redeem"
-            method: needsMethod ? method : undefined, // only for deposit/redeem
+            return apiClient.post("/api/game-entries", {
+              type, // "freeplay" | "deposit" | "redeem"
+              method: needsMethod ? method : undefined,
 
-            username: username.trim(),
-            createdBy: username.trim(),
+              username: username.trim(),
+              createdBy: username.trim(),
 
-            playerName: playerName.trim(),
-            gameName: gname,
+              playerName: playerName.trim(),
+              // when redeem + pending, attach the player tag here
+              playerTag:
+                type === "redeem" && isPending && pendingPlayerTag.trim()
+                  ? pendingPlayerTag.trim()
+                  : undefined,
 
-            amountBase: Number(base),
-            bonusRate: type === "deposit" ? Number(bonusRate) : 0,
-            bonusAmount: type === "deposit" ? Number(bonus) : 0,
-            amountFinal: Number(finalAmt),
+              gameName: gname,
 
-            // optional raw amount if you want (backend supports it)
-            amount: Number(finalAmt),
+              amountBase: Number(base),
+              bonusRate: type === "deposit" ? Number(bonusRate) : 0,
+              bonusAmount: type === "deposit" ? Number(bonus) : 0,
+              amountFinal: Number(finalAmt),
+              amount: Number(finalAmt),
 
-            note: note.trim() || undefined,
-            // backend normalizeDateString handles "YYYY-MM-DD"
-            date: date || undefined,
+              note: note.trim() || undefined,
+              date: date || undefined,
 
-            totalPaid: type === "redeem" ? Number(totalPaid) : undefined,
-            totalCashout: type === "redeem" ? Number(totalCashout) : undefined,
-            remainingPay: type === "redeem" ? Number(remainingPay) : undefined,
+              totalPaid: type === "redeem" ? Number(totalPaid) || 0 : undefined,
+              totalCashout:
+                type === "redeem" ? Number(totalCashout) || 0 : undefined,
+              remainingPay:
+                type === "redeem" ? Number(remainingPay) || 0 : undefined,
+
+              // 🔥 send isPending so backend can mark redeem as pending
+              isPending: type === "redeem" ? isPending : undefined,
+            });
+          })
+        );
+
+        if (gamesToSave.length) {
+          setNamesByType((old) => {
+            const set = new Set([...(old[type] || []), ...gamesToSave]);
+            return {
+              ...old,
+              [type]: Array.from(set).sort((a, b) => a.localeCompare(b)),
+            };
           });
-        })
-      );
+        }
 
-      if (gamesToSave.length) {
-        setNamesByType((old) => {
-          const set = new Set([...(old[type] || []), ...gamesToSave]);
-          return {
-            ...old,
-            [type]: Array.from(set).sort((a, b) => a.localeCompare(b)),
-          };
+        // reset OUR TAG form (username stays)
+        setType("deposit");
+        setFlow(true);
+        setMethod("cashapp");
+        setPlayerName("");
+        setSelectedGames([]);
+        setAmountsByGame({});
+        setGameQuery("");
+        setBonusRate(10);
+        setTotalPaidInput("");
+        setIsPending(false);
+        setPendingPlayerTag("");
+      } else {
+        // ===== PLAYER TAG MODE SAVE =====
+        await apiClient.post("/api/game-entries", {
+          type: "deposit",
+          method,
+
+          username: username.trim(),
+          createdBy: username.trim(),
+
+          playerTag: ptPlayerTag.trim(),
+          playerName: playerName.trim() || undefined,
+
+          gameName: ptGameName.trim(),
+
+          amountBase: Number(ptAmount) || 0,
+          bonusRate: 0,
+          bonusAmount: 0,
+          amountFinal: Number(ptAmount) || 0,
+          amount: Number(ptAmount) || 0,
+
+          note: note.trim() || undefined,
+          date: date || undefined,
+
+          totalCashout: Number(ptCashoutAmount) || 0,
+          reduction: Number(ptReduction) || 0,
+
+          // extra money only if enabled
+          extraMoney: extraMoneyEnabled ? Number(extraMoney) || 0 : undefined,
         });
+
+        // reset PLAYER TAG fields only
+        setPtPlayerTag("");
+        setPtGameName("");
+        setPtAmount("");
+        setPtCashoutAmount("");
+        setExtraMoneyEnabled(false);
+        setExtraMoney("");
       }
 
-      // reset form (username stays)
-      setType("deposit");
-      setFlow(true);
-      setMethod("cashapp");
-      setPlayerName("");
-      setSelectedGames([]);
-      setAmountsByGame({});
-      setGameQuery("");
-      setNote("");
-      setDate(getToday());
-      setBonusRate(10);
-      setTotalPaidInput("");
-
-      setOk(
-        `Saved ${gamesToSave.length} entr${
-          gamesToSave.length > 1 ? "ies" : "y"
-        }!`
-      );
+      setOk("Saved successfully!");
     } catch (err: any) {
       console.error("Save failed:", err?.response?.data || err.message || err);
       setError(
@@ -417,10 +531,61 @@ const GameEntryForm: React.FC = () => {
       <div className="w-full rounded-2xl border p-4 md:p-6 shadow-sm bg-white">
         <h2 className="text-lg font-semibold mb-4">Add Game Entry</h2>
 
+        {/* 🔔 Remaining paying headline for OUR TAG (redeem + pending + tag) */}
+        {entryMode === "our" &&
+          type === "redeem" &&
+          isPending &&
+          pendingPlayerTag.trim() &&
+          remainingPay > 0 && (
+            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              Remaining paying for{" "}
+              <span className="font-semibold">{pendingPlayerTag.trim()}</span>:{" "}
+              <span className="font-semibold">{remainingPay.toFixed(2)}</span>
+            </div>
+          )}
+
+        {/* 🔔 Remaining paying headline for PLAYER TAG mode */}
+        {entryMode === "player" && ptPlayerTag.trim() && ptReduction > 0 && (
+          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            Remaining paying for{" "}
+            <span className="font-semibold">{ptPlayerTag.trim()}</span>:{" "}
+            <span className="font-semibold">{ptReduction.toFixed(2)}</span>
+          </div>
+        )}
+
         <form
           onSubmit={handleSubmit}
           className="grid grid-cols-1 md:grid-cols-4 gap-4"
         >
+          {/* Entry mode toggle */}
+          <div className="md:col-span-4 flex flex-wrap items-center gap-3">
+            <span className="text-sm font-medium">Entry Mode:</span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setEntryMode("our")}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
+                  entryMode === "our"
+                    ? "bg-black text-white border-black"
+                    : "bg-white text-gray-700 border-gray-300"
+                }`}
+              >
+                Our Tag
+              </button>
+              <button
+                type="button"
+                onClick={() => setEntryMode("player")}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
+                  entryMode === "player"
+                    ? "bg-black text-white border-black"
+                    : "bg-white text-gray-700 border-gray-300"
+                }`}
+              >
+                Player Tag
+              </button>
+            </div>
+          </div>
+
           {/* Username (from localStorage, disabled) */}
           <div>
             <label className="block text-sm font-medium mb-1">Username</label>
@@ -437,58 +602,67 @@ const GameEntryForm: React.FC = () => {
             )}
           </div>
 
-          {/* Type */}
-          <div>
-            <label className="block text-sm font-medium mb-1">Type</label>
-            <select
-              value={type}
-              onChange={(e) => {
-                const v = e.target.value as EntryType;
-                setType(v);
-                if (v !== "freeplay") setFlow(v === "deposit");
-              }}
-              className="w-full rounded-lg border px-3 py-2"
-              required
-            >
-              {types.map((t) => (
-                <option key={t} value={t}>
-                  {t.charAt(0).toUpperCase() + t.slice(1)}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* ===== OUR TAG MODE FIELDS ===== */}
+          {entryMode === "our" && (
+            <>
+              {/* Type */}
+              <div>
+                <label className="block text-sm font-medium mb-1">Type</label>
+                <select
+                  value={type}
+                  onChange={(e) => {
+                    const v = e.target.value as EntryType;
+                    setType(v);
+                    if (v !== "freeplay") setFlow(v === "deposit");
+                    if (v !== "redeem") {
+                      setIsPending(false);
+                      setPendingPlayerTag("");
+                    }
+                  }}
+                  className="w-full rounded-lg border px-3 py-2"
+                  required
+                >
+                  {types.map((t) => (
+                    <option key={t} value={t}>
+                      {t.charAt(0).toUpperCase() + t.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          {/* Method */}
-          {type !== "freeplay" && (
-            <div>
-              <label className="block text-sm font-medium mb-1">Method</label>
-              <select
-                value={method}
-                onChange={(e) => setMethod(e.target.value as PaymentMethod)}
-                className="w-full rounded-lg border px-3 py-2"
-                required
-              >
-                {methods.map((m) => (
-                  <option key={m} value={m}>
-                    {m.charAt(0).toUpperCase() + m.slice(1)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+              {/* Method */}
+              {type !== "freeplay" && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Method
+                  </label>
+                  <select
+                    value={method}
+                    onChange={(e) => setMethod(e.target.value as PaymentMethod)}
+                    className="w-full rounded-lg border px-3 py-2"
+                    required
+                  >
+                    {methods.map((m) => (
+                      <option key={m} value={m}>
+                        {m.charAt(0).toUpperCase() + m.slice(1)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
-          {/* Cash Flow */}
-          <div className="md:col-span-1 flex items-end md:justify-end">
-            <div className="w-full md:w-auto">
-              <label className="block text-sm font-medium mb-1">
-                Cash Flow
-              </label>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setFlow(true)}
-                  disabled={type === "freeplay"}
-                  className={`px-3 py-2 rounded-lg border text-sm font-semibold transition
+              {/* Cash Flow */}
+              <div className="md:col-span-1 flex items-end md:justify-end">
+                <div className="w-full md:w-auto">
+                  <label className="block text-sm font-medium mb-1">
+                    Cash Flow
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setFlow(true)}
+                      disabled={type === "freeplay"}
+                      className={`px-3 py-2 rounded-lg border text-sm font-semibold transition
                     ${
                       isCashIn
                         ? "bg-emerald-500 text-white border-emerald-600"
@@ -498,14 +672,14 @@ const GameEntryForm: React.FC = () => {
                       type === "freeplay" ? "opacity-50 cursor-not-allowed" : ""
                     }
                   `}
-                >
-                  Cash In
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFlow(false)}
-                  disabled={type === "freeplay"}
-                  className={`px-3 py-2 rounded-lg border text-sm font-semibold transition
+                    >
+                      Cash In
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFlow(false)}
+                      disabled={type === "freeplay"}
+                      className={`px-3 py-2 rounded-lg border text-sm font-semibold transition
                     ${
                       !isCashIn
                         ? "bg-red-500 text-white border-red-600"
@@ -515,238 +689,421 @@ const GameEntryForm: React.FC = () => {
                       type === "freeplay" ? "opacity-50 cursor-not-allowed" : ""
                     }
                   `}
-                >
-                  Cash Out
-                </button>
-              </div>
-              <p className="text-[11px] text-slate-500 mt-1">
-                Cash In = Deposit · Cash Out = Redeem
-              </p>
-            </div>
-          </div>
-
-          {/* Player Name */}
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              Player Name
-            </label>
-            <input
-              value={playerName}
-              onChange={(e) => setPlayerName(e.target.value)}
-              placeholder="e.g. John"
-              className="w-full rounded-lg border px-3 py-2"
-              required
-            />
-          </div>
-
-          {/* Game Names */}
-          <div className="md:col-span-3" ref={dropdownRef}>
-            <label className="block text-sm font-medium mb-1">
-              Game Name(s)
-            </label>
-
-            {selectedGames.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-2">
-                {selectedGames.map((g) => (
-                  <span
-                    key={g}
-                    className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-full text-xs bg-slate-100 border border-slate-200"
-                  >
-                    {g}
-                    <button
-                      type="button"
-                      onClick={() => removeGameToken(g)}
-                      className="text-slate-500 hover:text-slate-700"
                     >
-                      ✕
+                      Cash Out
                     </button>
-                  </span>
-                ))}
-              </div>
-            )}
-
-            <div className="relative">
-              <input
-                ref={gameInputRef}
-                value={gameQuery}
-                onChange={(e) => {
-                  setGameQuery(e.target.value);
-                  setGamesOpen(true);
-                }}
-                onFocus={() => {
-                  const cached = (namesByType[type] || []).filter(
-                    (n) => !selectedGames.includes(n)
-                  );
-                  setGameOptions(cached.slice(0, 10));
-                  setGamesOpen(cached.length > 0);
-                }}
-                onKeyDown={onGameKeyDown}
-                placeholder="Type and press Enter or comma to add"
-                className="w-full rounded-lg border px-3 py-2"
-              />
-
-              {gamesOpen && (
-                <div className="absolute z-20 mt-1 w-full rounded-lg border bg-white shadow-lg max-h-60 overflow-auto">
-                  {gamesLoading && (
-                    <div className="px-3 py-2 text-sm text-gray-500">
-                      Loading…
-                    </div>
-                  )}
-                  {gamesError && (
-                    <div className="px-3 py-2 text-sm text-red-600">
-                      {gamesError}
-                    </div>
-                  )}
-                  {!gamesLoading &&
-                    !gamesError &&
-                    gameOptions.map((opt, i) => (
-                      <button
-                        type="button"
-                        key={opt + i}
-                        className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 ${
-                          i === highlightIndex ? "bg-gray-100" : ""
-                        }`}
-                        onMouseEnter={() => setHighlightIndex(i)}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          chooseGame(opt);
-                        }}
-                      >
-                        {opt}
-                      </button>
-                    ))}
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Cash In = Deposit · Cash Out = Redeem
+                  </p>
                 </div>
-              )}
-            </div>
-          </div>
-
-          {/* Per-game Amounts */}
-          {selectedGames.length > 0 && (
-            <div className="md:col-span-4">
-              <div className="flex items-center justify-between mb-2">
-                <label className="block text-sm font-semibold">
-                  Amounts per Game
-                </label>
-                <button
-                  type="button"
-                  onClick={applyFirstToAll}
-                  className="text-sm underline"
-                >
-                  Apply first amount to all
-                </button>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {selectedGames.map((g) => {
-                  const calc = perGameCalc[g] || {
-                    base: 0,
-                    bonus: 0,
-                    finalAmt: 0,
-                  };
-                  return (
-                    <div key={g} className="border rounded-lg p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="text-sm font-medium">{g}</div>
+              {/* Player Name */}
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Player Name
+                </label>
+                <input
+                  value={playerName}
+                  onChange={(e) => setPlayerName(e.target.value)}
+                  placeholder="e.g. John"
+                  className="w-full rounded-lg border px-3 py-2"
+                  required
+                />
+              </div>
+
+              {/* Game Names */}
+              <div className="md:col-span-3" ref={dropdownRef}>
+                <label className="block text-sm font-medium mb-1">
+                  Game Name(s)
+                </label>
+
+                {selectedGames.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mb-2">
+                    {selectedGames.map((g) => (
+                      <span
+                        key={g}
+                        className="inline-flex items-center gap-2 px-2.5 py-1.5 rounded-full text-xs bg-slate-100 border border-slate-200"
+                      >
+                        {g}
                         <button
                           type="button"
-                          className="text-xs text-red-600"
                           onClick={() => removeGameToken(g)}
+                          className="text-slate-500 hover:text-slate-700"
                         >
-                          Remove
+                          ✕
                         </button>
-                      </div>
+                      </span>
+                    ))}
+                  </div>
+                )}
 
-                      <label className="block text-xs text-slate-600 mb-1">
-                        Amount
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={amountsByGame[g] ?? ""}
-                        onChange={(e) =>
-                          setAmountsByGame((prev) => ({
-                            ...prev,
-                            [g]: e.target.value,
-                          }))
-                        }
-                        placeholder="0.00"
-                        className="w-full rounded-lg border px-3 py-2"
-                        required
-                      />
+                <div className="relative">
+                  <input
+                    ref={gameInputRef}
+                    value={gameQuery}
+                    onChange={(e) => {
+                      setGameQuery(e.target.value);
+                      setGamesOpen(true);
+                    }}
+                    onFocus={() => {
+                      const cached = (namesByType[type] || []).filter(
+                        (n) => !selectedGames.includes(n)
+                      );
+                      setGameOptions(cached.slice(0, 10));
+                      setGamesOpen(cached.length > 0);
+                    }}
+                    onKeyDown={onGameKeyDown}
+                    placeholder="Type and press Enter or comma to add"
+                    className="w-full rounded-lg border px-3 py-2"
+                  />
 
-                      {type === "deposit" && (
-                        <p className="text-[11px] text-slate-600 mt-2">
-                          Bonus: {calc.bonus.toFixed(2)} · Final:{" "}
-                          {calc.finalAmt.toFixed(2)}
-                        </p>
+                  {gamesOpen && (
+                    <div className="absolute z-20 mt-1 w-full rounded-lg border bg-white shadow-lg max-h-60 overflow-auto">
+                      {gamesLoading && (
+                        <div className="px-3 py-2 text-sm text-gray-500">
+                          Loading…
+                        </div>
                       )}
+                      {gamesError && (
+                        <div className="px-3 py-2 text-sm text-red-600">
+                          {gamesError}
+                        </div>
+                      )}
+                      {!gamesLoading &&
+                        !gamesError &&
+                        gameOptions.map((opt, i) => (
+                          <button
+                            type="button"
+                            key={opt + i}
+                            className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 ${
+                              i === highlightIndex ? "bg-gray-100" : ""
+                            }`}
+                            onMouseEnter={() => setHighlightIndex(i)}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              chooseGame(opt);
+                            }}
+                          >
+                            {opt}
+                          </button>
+                        ))}
                     </div>
-                  );
-                })}
+                  )}
+                </div>
               </div>
-            </div>
+
+              {/* Per-game Amounts */}
+              {selectedGames.length > 0 && (
+                <div className="md:col-span-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-semibold">
+                      Amounts per Game
+                    </label>
+                    <button
+                      type="button"
+                      onClick={applyFirstToAll}
+                      className="text-sm underline"
+                    >
+                      Apply first amount to all
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {selectedGames.map((g) => {
+                      const calc = perGameCalc[g] || {
+                        base: 0,
+                        bonus: 0,
+                        finalAmt: 0,
+                      };
+                      return (
+                        <div key={g} className="border rounded-lg p-3">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="text-sm font-medium">{g}</div>
+                            <button
+                              type="button"
+                              className="text-xs text-red-600"
+                              onClick={() => removeGameToken(g)}
+                            >
+                              Remove
+                            </button>
+                          </div>
+
+                          <label className="block text-xs text-slate-600 mb-1">
+                            Amount
+                          </label>
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={amountsByGame[g] ?? ""}
+                            onChange={(e) =>
+                              setAmountsByGame((prev) => ({
+                                ...prev,
+                                [g]: e.target.value,
+                              }))
+                            }
+                            placeholder="0.00"
+                            className="w-full rounded-lg border px-3 py-2"
+                            required
+                          />
+
+                          {type === "deposit" && (
+                            <p className="text-[11px] text-slate-600 mt-2">
+                              Bonus: {calc.bonus.toFixed(2)} · Final:{" "}
+                              {calc.finalAmt.toFixed(2)}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Bonus only for deposit */}
+              {type === "deposit" && (
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium mb-1">
+                    Bonus (%)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={bonusRate}
+                    onChange={(e) => setBonusRate(Number(e.target.value) || 0)}
+                    className="w-full rounded-lg border px-3 py-2"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Applied per game. Bonus = amount × rate / 100
+                  </p>
+                </div>
+              )}
+
+              {/* Cashout totals for REDEEM */}
+              {type === "redeem" && (
+                <>
+                  {/* Total Cost (auto) */}
+                  <div className="md:col-span-1">
+                    <label className="block text-sm font-medium mb-1">
+                      Total Cost
+                    </label>
+                    <input
+                      value={totalCashout.toFixed(2)}
+                      readOnly
+                      className="w-full rounded-lg border px-3 py-2 bg-gray-50"
+                    />
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Sum of all game final amounts for this redeem.
+                    </p>
+                  </div>
+
+                  {/* Total Paid (optional) */}
+                  <div className="md:col-span-1">
+                    <label className="block text-sm font-medium mb-1">
+                      Total Paid (optional)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={totalPaidInput}
+                      onChange={(e) => setTotalPaidInput(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full rounded-lg border px-3 py-2"
+                    />
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Leave blank or 0 if nothing has been paid yet.
+                    </p>
+                  </div>
+
+                  {/* Remaining Pay */}
+                  <div className="md:col-span-1">
+                    <label className="block text-sm font-medium mb-1">
+                      Remaining Pay
+                    </label>
+                    <input
+                      value={remainingPay.toFixed(2)}
+                      readOnly
+                      className="w-full rounded-lg border px-3 py-2 bg-gray-50"
+                    />
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Remaining = Total Cost − Total Paid
+                    </p>
+                  </div>
+
+                  {/* Pending toggle + Player Tag */}
+                  <div className="md:col-span-1 flex flex-col justify-end gap-2">
+                    <label className="inline-flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={isPending}
+                        onChange={(e) => setIsPending(e.target.checked)}
+                      />
+                      <span>Mark as Pending</span>
+                    </label>
+
+                    {isPending && (
+                      <div>
+                        <label className="block text-xs font-medium mb-1">
+                          Player Tag (for this pending)
+                        </label>
+                        <input
+                          value={pendingPlayerTag}
+                          onChange={(e) => setPendingPlayerTag(e.target.value)}
+                          placeholder="@player123"
+                          className="w-full rounded-lg border px-3 py-2 text-sm"
+                        />
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </>
           )}
 
-          {/* Bonus only for deposit */}
-          {type === "deposit" && (
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium mb-1">
-                Bonus (%)
-              </label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={bonusRate}
-                onChange={(e) => setBonusRate(Number(e.target.value) || 0)}
-                className="w-full rounded-lg border px-3 py-2"
-              />
-              <p className="text-[11px] text-slate-500 mt-1">
-                Applied per game. Bonus = amount × rate / 100
-              </p>
-            </div>
-          )}
-
-          {/* Cashout totals */}
-          {type === "redeem" && (
+          {/* ===== PLAYER TAG MODE FIELDS ===== */}
+          {entryMode === "player" && (
             <>
+              {/* Method (always required) */}
+              <div>
+                <label className="block text-sm font-medium mb-1">Method</label>
+                <select
+                  value={method}
+                  onChange={(e) => setMethod(e.target.value as PaymentMethod)}
+                  className="w-full rounded-lg border px-3 py-2"
+                  required
+                >
+                  {methods.map((m) => (
+                    <option key={m} value={m}>
+                      {m.charAt(0).toUpperCase() + m.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Player Tag */}
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Player Tag
+                </label>
+                <input
+                  value={ptPlayerTag}
+                  onChange={(e) => setPtPlayerTag(e.target.value)}
+                  placeholder="e.g. @player123"
+                  className="w-full rounded-lg border px-3 py-2"
+                  required
+                />
+              </div>
+
+              {/* Optional display name (reusing playerName state) */}
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Player Name (optional)
+                </label>
+                <input
+                  value={playerName}
+                  onChange={(e) => setPlayerName(e.target.value)}
+                  placeholder="e.g. John"
+                  className="w-full rounded-lg border px-3 py-2"
+                />
+              </div>
+
+              {/* Single Game Name */}
               <div className="md:col-span-1">
                 <label className="block text-sm font-medium mb-1">
-                  Total Paid
+                  Game Name
+                </label>
+                <input
+                  value={ptGameName}
+                  onChange={(e) => setPtGameName(e.target.value)}
+                  placeholder="e.g. pandamaster"
+                  className="w-full rounded-lg border px-3 py-2"
+                  required
+                />
+              </div>
+
+              {/* Amount (deposit) */}
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  Amount (Deposit)
                 </label>
                 <input
                   type="number"
                   min={0}
                   step="0.01"
-                  value={totalPaidInput}
-                  onChange={(e) => setTotalPaidInput(e.target.value)}
+                  value={ptAmount}
+                  onChange={(e) => setPtAmount(e.target.value)}
                   placeholder="0.00"
                   className="w-full rounded-lg border px-3 py-2"
                   required
                 />
               </div>
 
-              <div className="md:col-span-1">
+              {/* Cashout amount */}
+              <div>
                 <label className="block text-sm font-medium mb-1">
-                  Total Cashout
+                  Cashout Amount
                 </label>
                 <input
-                  value={totalCashout.toFixed(2)}
-                  readOnly
-                  className="w-full rounded-lg border px-3 py-2 bg-gray-50"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={ptCashoutAmount}
+                  onChange={(e) => setPtCashoutAmount(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full rounded-lg border px-3 py-2"
                 />
               </div>
 
-              <div className="md:col-span-1">
+              {/* Reduction (auto) */}
+              <div>
                 <label className="block text-sm font-medium mb-1">
-                  Remaining Pay
+                  Reduction
                 </label>
                 <input
-                  value={remainingPay.toFixed(2)}
+                  value={ptReduction.toFixed(2)}
                   readOnly
                   className="w-full rounded-lg border px-3 py-2 bg-gray-50"
                 />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Reduction = Deposit Amount − Cashout Amount
+                </p>
+              </div>
+
+              {/* Extra Money Toggle + Amount */}
+              <div className="md:col-span-1 flex flex-col justify-end gap-2">
+                <label className="inline-flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={extraMoneyEnabled}
+                    onChange={(e) => setExtraMoneyEnabled(e.target.checked)}
+                  />
+                  <span>Extra Money</span>
+                </label>
+
+                {extraMoneyEnabled && (
+                  <div>
+                    <label className="block text-xs font-medium mb-1">
+                      Extra Money Amount
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={extraMoney}
+                      onChange={(e) => setExtraMoney(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full rounded-lg border px-3 py-2 text-sm"
+                      required
+                    />
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      This will be stored as extra money for this player tag.
+                    </p>
+                  </div>
+                )}
               </div>
             </>
           )}
