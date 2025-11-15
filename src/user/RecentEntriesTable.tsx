@@ -91,7 +91,7 @@ const RecentEntriesTable: React.FC<RecentEntriesTableProps> = ({
 }) => {
   const rows = useMemo(() => {
     return recent.map((r) => {
-      const whenISO = r.date || r.createdAt;
+      const whenISO = r.createdAt;
 
       const whenNepal = toNepalDate(whenISO);
 

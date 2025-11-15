@@ -7,7 +7,7 @@ import React, {
   type FC,
 } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { Clock, CheckCircle2 } from "lucide-react";
+import { Clock } from "lucide-react";
 
 import { apiClient } from "../apiConfig";
 import { DataTable } from "../DataTable";
@@ -62,6 +62,9 @@ const UserCashoutTable: FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  // Which row is being confirmed in the modal
+  const [confirmRow, setConfirmRow] = useState<PendingRow | null>(null);
 
   // 🔄 load pending entries from GameEntry
   useEffect(() => {
@@ -121,20 +124,15 @@ const UserCashoutTable: FC = () => {
 
   // ✅ Mark as paid → clear pending in backend + remove from list
   const handleMarkPaid = useCallback(async (row: PendingRow) => {
-    const prettyAmount = row.pendingAmount.toFixed(2);
-    const confirm = window.confirm(
-      `Mark ${row.label}'s $${prettyAmount} as PAID and clear from pending?`
-    );
-    if (!confirm) return;
-
     try {
       setUpdatingId(row._id);
       setError("");
 
-      // 🔧 Backend route (add this in gameEntries.js, see below)
+      // 🔧 Backend route
       await apiClient.patch(`/api/game-entries/${row._id}/clear-pending`, {
         reduction: 0,
       });
+
       // Remove from UI list
       setRows((prev) => prev.filter((r) => r._id !== row._id));
     } catch (err: any) {
@@ -245,7 +243,7 @@ const UserCashoutTable: FC = () => {
                     ? "bg-gray-400 cursor-not-allowed"
                     : "bg-green-600 hover:bg-green-700"
                 }`}
-                onClick={() => handleMarkPaid(data)}
+                onClick={() => setConfirmRow(data)} // 👈 open our custom modal
               >
                 {busy ? "Saving..." : "Mark Paid"}
               </button>
@@ -254,8 +252,13 @@ const UserCashoutTable: FC = () => {
         },
       },
     ],
-    [handleMarkPaid, updatingId]
+    [updatingId]
   );
+
+  const prettyAmount =
+    confirmRow?.pendingAmount != null
+      ? confirmRow.pendingAmount.toFixed(2)
+      : "0.00";
 
   return (
     <div className="w-full max-w-8xl mx-auto bg-white text-black rounded-xl shadow p-4 md:p-6 space-y-4">
@@ -282,6 +285,42 @@ const UserCashoutTable: FC = () => {
         </div>
       ) : (
         <DataTable<PendingRow> columns={columns} data={rows} />
+      )}
+
+      {/* 🔽 Simple built-in confirm modal */}
+      {confirmRow && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white text-black rounded-lg shadow-lg p-5 w-full max-w-sm">
+            <h3 className="text-lg font-semibold mb-2">Mark as Paid?</h3>
+            <p className="text-sm text-gray-700 mb-4">
+              Mark <span className="font-semibold">{confirmRow.label}</span>
+              {"'s "}
+              <span className="font-semibold">${prettyAmount}</span> as{" "}
+              <span className="font-semibold">PAID</span> and clear it from
+              pending?
+            </p>
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className="px-3 py-1 text-sm rounded border border-gray-300 hover:bg-gray-100"
+                onClick={() => setConfirmRow(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="px-3 py-1 text-sm rounded bg-green-600 text-white hover:bg-green-700"
+                onClick={async () => {
+                  await handleMarkPaid(confirmRow);
+                  setConfirmRow(null);
+                }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
