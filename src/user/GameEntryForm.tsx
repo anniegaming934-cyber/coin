@@ -80,6 +80,25 @@ const GameEntryForm: React.FC = () => {
   const [extraMoneyEnabled, setExtraMoneyEnabled] = useState(false);
   const [extraMoney, setExtraMoney] = useState("");
 
+  // 🔁 pending tags & lookup info for PLAYER TAG mode
+  const [pendingTags, setPendingTags] = useState<string[]>([]);
+  const [tagLookupLoading, setTagLookupLoading] = useState(false);
+  const [tagLookupError, setTagLookupError] = useState<string | null>(null);
+  const [tagPendingInfo, setTagPendingInfo] = useState<{
+    playerTag: string;
+    remainingPay: number;
+    totalCashout: number;
+    totalPaid: number;
+  } | null>(null);
+
+  // simple suggestions dropdown for player tag
+  const [tagOptions, setTagOptions] = useState<string[]>([]);
+  const [tagDropdownOpen, setTagDropdownOpen] = useState(false);
+  const [tagHighlightIndex, setTagHighlightIndex] = useState(-1);
+  const tagInputRef = useRef<HTMLInputElement>(null);
+
+  const debouncedPlayerTag = useDebounce(ptPlayerTag, 300);
+
   const ptReduction = useMemo(() => {
     const dep = Number(ptAmount) || 0;
     const cashout = Number(ptCashoutAmount) || 0;
@@ -95,6 +114,96 @@ const GameEntryForm: React.FC = () => {
       console.log("Loaded username from localStorage:", stored);
     }
   }, []);
+
+  // 🟢 Once username is known, load all pending tags from backend
+  useEffect(() => {
+    if (!username.trim()) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await apiClient.get("/api/game-entries/pending", {
+          params: { username: username.trim() },
+        });
+        if (cancelled) return;
+        const tags = Array.from(
+          new Set(
+            (Array.isArray(data) ? data : [])
+              .map((e: any) => String(e.playerTag || "").trim())
+              .filter((t) => t.length > 0)
+          )
+        );
+        setPendingTags(tags);
+      } catch (err) {
+        console.error("Failed to load pending tags:", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [username]);
+
+  // helper: lookup pending info for a playerTag
+  const lookupPendingForTag = async (tag: string, user: string) => {
+    const cleanTag = tag.trim();
+    if (!cleanTag || !user.trim()) {
+      setTagPendingInfo(null);
+      setTagLookupError(null);
+      return;
+    }
+    try {
+      setTagLookupLoading(true);
+      setTagLookupError(null);
+      const { data } = await apiClient.get("/api/game-entries/pending-by-tag", {
+        params: {
+          playerTag: cleanTag,
+          username: user.trim(),
+        },
+      });
+      const remaining = Number(data?.remainingPay || 0);
+      const info = {
+        playerTag: data?.playerTag || cleanTag,
+        remainingPay: remaining,
+        totalCashout: Number(data?.totalCashout || 0),
+        totalPaid: Number(data?.totalPaid || 0),
+      };
+      setTagPendingInfo(info);
+
+      // auto-fill cashout amount with remaining pay if > 0
+      if (remaining > 0) {
+        setPtCashoutAmount(remaining.toString());
+      }
+    } catch (err: any) {
+      console.error(
+        "pending-by-tag lookup failed:",
+        err?.response?.data || err
+      );
+      // 404 just means "no pending", don't show scary error
+      if (err?.response?.status === 404) {
+        setTagPendingInfo(null);
+        setTagLookupError(null);
+      } else {
+        setTagPendingInfo(null);
+        setTagLookupError(
+          err?.response?.data?.message ||
+            "Failed to lookup pending info for this tag."
+        );
+      }
+    } finally {
+      setTagLookupLoading(false);
+    }
+  };
+
+  // whenever player tag changes (debounced) in PLAYER mode, lookup pending
+  useEffect(() => {
+    if (entryMode !== "player") return;
+    if (!debouncedPlayerTag.trim() || !username.trim()) {
+      setTagPendingInfo(null);
+      setTagLookupError(null);
+      return;
+    }
+    lookupPendingForTag(debouncedPlayerTag, username);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedPlayerTag, entryMode, username]);
 
   // keep switch ↔ type in sync (OUR TAG MODE only)
   useEffect(() => {
@@ -388,6 +497,49 @@ const GameEntryForm: React.FC = () => {
     setAmountsByGame(next);
   }
 
+  // ===== player-tag suggestions helpers =====
+  function updateTagOptions(value: string) {
+    const q = value.trim().toLowerCase();
+    if (!q) {
+      const base = pendingTags.slice(0, 10);
+      setTagOptions(base);
+      setTagDropdownOpen(base.length > 0);
+      setTagHighlightIndex(base.length ? 0 : -1);
+      return;
+    }
+    const filtered = pendingTags
+      .filter((t) => t.toLowerCase().includes(q))
+      .slice(0, 10);
+    setTagOptions(filtered);
+    setTagDropdownOpen(filtered.length > 0);
+    setTagHighlightIndex(filtered.length ? 0 : -1);
+  }
+
+  function chooseTag(tag: string) {
+    setPtPlayerTag(tag);
+    setTagDropdownOpen(false);
+    setTagHighlightIndex(-1);
+    // lookup will be triggered by debounced effect
+  }
+
+  function onTagKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!tagDropdownOpen || tagOptions.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setTagHighlightIndex((i) => (i + 1) % tagOptions.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setTagHighlightIndex(
+        (i) => (i - 1 + tagOptions.length) % tagOptions.length
+      );
+    } else if (e.key === "Enter" || e.key === "Tab") {
+      if (tagHighlightIndex >= 0 && tagOptions[tagHighlightIndex]) {
+        e.preventDefault();
+        chooseTag(tagOptions[tagHighlightIndex]);
+      }
+    }
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -511,6 +663,8 @@ const GameEntryForm: React.FC = () => {
         setPtCashoutAmount("");
         setExtraMoneyEnabled(false);
         setExtraMoney("");
+        setTagPendingInfo(null);
+        setTagLookupError(null);
       }
 
       setOk("Saved successfully!");
@@ -544,13 +698,38 @@ const GameEntryForm: React.FC = () => {
             </div>
           )}
 
-        {/* 🔔 Remaining paying headline for PLAYER TAG mode */}
-        {entryMode === "player" && ptPlayerTag.trim() && ptReduction > 0 && (
-          <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            Remaining paying for{" "}
-            <span className="font-semibold">{ptPlayerTag.trim()}</span>:{" "}
-            <span className="font-semibold">{ptReduction.toFixed(2)}</span>
-          </div>
+        {/* 🔔 Headlines for PLAYER TAG mode */}
+        {entryMode === "player" && ptPlayerTag.trim() && (
+          <>
+            {tagPendingInfo && tagPendingInfo.remainingPay > 0 && (
+              <div className="mb-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                Pending from previous redeem for{" "}
+                <span className="font-semibold">
+                  {tagPendingInfo.playerTag}
+                </span>
+                :{" "}
+                <span className="font-semibold">
+                  {tagPendingInfo.remainingPay.toFixed(2)}
+                </span>
+              </div>
+            )}
+
+            {ptReduction > 0 && (
+              <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                Reduction for this deposit (Deposit − Cashout):{" "}
+                <span className="font-semibold">{ptReduction.toFixed(2)}</span>
+              </div>
+            )}
+
+            {tagLookupLoading && (
+              <div className="mb-2 text-xs text-gray-500">
+                Checking pending balance for this tag…
+              </div>
+            )}
+            {tagLookupError && (
+              <div className="mb-2 text-xs text-red-600">{tagLookupError}</div>
+            )}
+          </>
         )}
 
         <form
@@ -984,18 +1163,52 @@ const GameEntryForm: React.FC = () => {
                 </select>
               </div>
 
-              {/* Player Tag */}
-              <div>
+              {/* Player Tag with suggestions from pending API */}
+              <div className="relative">
                 <label className="block text-sm font-medium mb-1">
                   Player Tag
                 </label>
                 <input
+                  ref={tagInputRef}
                   value={ptPlayerTag}
-                  onChange={(e) => setPtPlayerTag(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setPtPlayerTag(val);
+                    updateTagOptions(val);
+                  }}
+                  onFocus={() => {
+                    updateTagOptions(ptPlayerTag);
+                  }}
+                  onKeyDown={onTagKeyDown}
                   placeholder="e.g. @player123"
                   className="w-full rounded-lg border px-3 py-2"
                   required
                 />
+
+                {tagDropdownOpen && tagOptions.length > 0 && (
+                  <div className="absolute z-20 mt-1 w-full rounded-lg border bg-white shadow-lg max-h-60 overflow-auto">
+                    {tagOptions.map((opt, i) => (
+                      <button
+                        type="button"
+                        key={opt + i}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 ${
+                          i === tagHighlightIndex ? "bg-gray-100" : ""
+                        }`}
+                        onMouseEnter={() => setTagHighlightIndex(i)}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          chooseTag(opt);
+                        }}
+                      >
+                        {opt}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Suggestions are from pending payments. Selecting one will
+                  auto-fill the cashout amount with the remaining pay.
+                </p>
               </div>
 
               {/* Optional display name (reusing playerName state) */}
@@ -1042,7 +1255,7 @@ const GameEntryForm: React.FC = () => {
                 />
               </div>
 
-              {/* Cashout amount */}
+              {/* Cashout amount (auto-filled from pending if any) */}
               <div>
                 <label className="block text-sm font-medium mb-1">
                   Cashout Amount
@@ -1056,6 +1269,10 @@ const GameEntryForm: React.FC = () => {
                   placeholder="0.00"
                   className="w-full rounded-lg border px-3 py-2"
                 />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  If this tag has pending redeem, this will be auto-filled with
+                  the remaining pay.
+                </p>
               </div>
 
               {/* Reduction (auto) */}

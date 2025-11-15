@@ -132,8 +132,9 @@ const UserCashoutTable: FC = () => {
       setError("");
 
       // 🔧 Backend route (add this in gameEntries.js, see below)
-      await apiClient.patch(`/api/game-entries/${row._id}/clear-pending`);
-
+      await apiClient.patch(`/api/game-entries/${row._id}/clear-pending`, {
+        reduction: 0,
+      });
       // Remove from UI list
       setRows((prev) => prev.filter((r) => r._id !== row._id));
     } catch (err: any) {
