@@ -11,6 +11,10 @@ const GAMES_API_PATH = "/api/games"; // GET /api/games?q=...
 
 type EntryMode = "our" | "player";
 
+interface GameEntryFormProps {
+  username: string; // 👈 comes from UserDashboard
+}
+
 function useDebounce<T>(value: T, delay = 250) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -28,16 +32,14 @@ const getToday = () => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
-const GameEntryForm: React.FC = () => {
+const GameEntryForm: React.FC<GameEntryFormProps> = ({ username }) => {
   const [entryMode, setEntryMode] = useState<EntryMode>("our");
 
   const [type, setType] = useState<EntryType>("deposit");
   const [isCashIn, setIsCashIn] = useState(true); // deposit vs redeem
   const [method, setMethod] = useState<PaymentMethod>("cashapp");
 
-  // 🔐 username: loaded from localStorage
-  const [username, setUsername] = useState("");
-
+  // 🔐 username now comes from props, so no local state
   const [playerName, setPlayerName] = useState("");
   const [note, setNote] = useState("");
   const [date, setDate] = useState(getToday());
@@ -105,15 +107,6 @@ const GameEntryForm: React.FC = () => {
     const diff = dep - cashout;
     return diff > 0 ? diff : 0;
   }, [ptAmount, ptCashoutAmount]);
-
-  // 🔐 Load username from localStorage ONLY
-  useEffect(() => {
-    const stored = localStorage.getItem("username");
-    if (stored) {
-      setUsername(stored);
-      console.log("Loaded username from localStorage:", stored);
-    }
-  }, []);
 
   // 🟢 Once username is known, load all pending tags from backend
   useEffect(() => {
@@ -614,7 +607,7 @@ const GameEntryForm: React.FC = () => {
           });
         }
 
-        // reset OUR TAG form (username stays)
+        // reset OUR TAG form (username stays via prop)
         setType("deposit");
         setFlow(true);
         setMethod("cashapp");
@@ -765,7 +758,7 @@ const GameEntryForm: React.FC = () => {
             </div>
           </div>
 
-          {/* Username (from localStorage, disabled) */}
+          {/* Username (from props, disabled) */}
           <div>
             <label className="block text-sm font-medium mb-1">Username</label>
             <input

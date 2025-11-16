@@ -33,7 +33,12 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
     useState<SidebarSection>("overview");
   const [recent, setRecent] = useState<GameEntry[]>([]);
 
-  const [paymentTotals, setPaymentTotals] = useState({
+  // ✅ add paymentTotals state instead of that dummy function
+  const [paymentTotals, setPaymentTotals] = useState<{
+    cashapp: number;
+    paypal: number;
+    chime: number;
+  }>({
     cashapp: 0,
     paypal: 0,
     chime: 0,
@@ -88,77 +93,6 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
   };
 
   // -----------------------------
-  // Payment handlers (match PaymentForm props + backend)
-  // -----------------------------
-  const onRecharge = async ({
-    amount,
-    method,
-    note,
-    playerName,
-    totalPaid,
-    totalCashout,
-    date,
-    txType,
-  }: {
-    amount: number;
-    method: PaymentMethod;
-    note?: string;
-    playerName?: string;
-    totalPaid?: number;
-    totalCashout?: number;
-    date?: string;
-    txType: TxType; // "cashin" | "cashout"
-  }) => {
-    const endpoint =
-      txType === "cashout"
-        ? `${PAY_API}/payments/cashout`
-        : `${PAY_API}/payments/cashin`;
-
-    if (txType === "cashout" && !playerName?.trim()) {
-      throw new Error("Player name is required for cash out");
-    }
-
-    const payload: any = { amount, method, date };
-
-    if (txType === "cashin") {
-      if (note) payload.note = note;
-      if (playerName?.trim()) payload.playerName = playerName.trim();
-    } else {
-      payload.playerName = playerName!.trim();
-      if (totalPaid != null) payload.totalPaid = Number(totalPaid);
-      if (totalCashout != null) payload.totalCashout = Number(totalCashout);
-    }
-
-    try {
-      const { data } = await apiClient.post(endpoint, payload);
-      if (data?.totals) setPaymentTotals(data.totals);
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.message ||
-        err?.message ||
-        "Failed to submit payment";
-      throw new Error(msg);
-    }
-  };
-
-  const onReset = async () => {
-    try {
-      const { data } = await apiClient.post(`${PAY_API}/reset`);
-      if (data?.totals) {
-        setPaymentTotals(data.totals);
-        return data.totals;
-      }
-      return paymentTotals;
-    } catch (err: any) {
-      const msg =
-        err?.response?.data?.message ||
-        err?.message ||
-        "Failed to reset totals";
-      throw new Error(msg);
-    }
-  };
-
-  // -----------------------------
   // Render UI
   // -----------------------------
   return (
@@ -192,7 +126,8 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
           {activeSection === "overview" && (
             <>
               <div className="grid grid-cols-1 gap-6 mb-8">
-                <GameEntryForm />
+                {/* ⭐ Pass username into GameEntryForm */}
+                <GameEntryForm username={username} />
               </div>
               <div className="grid grid-cols-1 gap-6 mb-8">
                 <UserCashoutTable />
