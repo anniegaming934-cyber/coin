@@ -9,7 +9,7 @@ import PaymentHistory from "../user/PaymentHistory";
 import Sidebar, { type SidebarSection } from "./Sidebar";
 import FacebookLeadForm from "../FacebookLeadForm";
 import UserAdminTable from "./UserAdminTable";
-import UserHistory from "./AdminUserHistory";
+import UserHistory from "./AdminUserHistory"; // ✅ make sure this accepts `username` prop
 import AdminUserActivityTable from "./AdminUserActivityTable";
 import { DataTable } from "../DataTable";
 import { ColumnDef } from "@tanstack/react-table";
@@ -49,7 +49,9 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
   const [editingGameId, setEditingGameId] = useState<number | null>(null);
   const [activeSection, setActiveSection] =
     useState<SidebarSection>("overview");
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+
+  // 👉 this is the username we pass to UserHistory and backend history APIs
+  const [selectedUsername, setSelectedUsername] = useState<string | null>(null);
 
   const [paymentTotals, setPaymentTotals] = useState({
     cashapp: 0,
@@ -390,10 +392,10 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">
             {activeSection === "overview" && "Admin Overview"}
             {activeSection === "games" && "Games"}
-            {activeSection === "payments" && "Payments"}
             {activeSection === "playerinfo" && "Player Info"}
             {activeSection === "UserAdminTable" && "User Admin"}
             {activeSection === "userHistroy" && "User History"}
+            {activeSection === "employeeSalary" && "Employee Salary"}
             {activeSection === "settings" && "Settings"}
           </h1>
         </header>
@@ -405,7 +407,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
             <>
               {/* Summary table */}
               <div className="w-full mb-8">
-                <div className="flex items-center justify_between mb-2">
+                <div className="flex items-center justify-between mb-2">
                   <h2 className="text-lg font-semibold text-gray-800">
                     Summary
                   </h2>
@@ -539,17 +541,29 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
           {/* USER ADMIN TAB */}
           {activeSection === "UserAdminTable" && (
             <UserAdminTable
-              onViewHistory={(userId: string) => {
-                setSelectedUserId(userId);
+              onViewHistory={(usernameForHistory: string) => {
+                // username for which we want to see history
+                setSelectedUsername(usernameForHistory);
                 setActiveSection("userHistroy");
               }}
             />
           )}
 
           {/* USER HISTORY TAB */}
-          {activeSection === "userHistroy" && selectedUserId && (
-            <UserHistory userId={selectedUserId} />
+          {activeSection === "userHistroy" && (
+            <>
+              {!selectedUsername && (
+                <div className="mb-4 text-sm text-gray-600">
+                  Please select a user from{" "}
+                  <span className="font-semibold">User Admin</span> to view
+                  their activity history.
+                </div>
+              )}
+              {selectedUsername && <UserHistory username={selectedUsername} />}
+            </>
           )}
+
+          {/* EMPLOYEE SALARY TAB */}
           {activeSection === "employeeSalary" && <SalaryForm />}
 
           {/* SETTINGS TAB */}
@@ -573,12 +587,12 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
             id,
             _spent,
             _earned,
-            recharge,
-            _totalCoinsAfter?,
-            dateISO?
+            rechargeChange,
+            _totalCoinsAfter,
+            rechargeDateISO
           ) => {
             // keep spent/earned as 0 (we only edit recharge+date)
-            handleUpdate(id, 0, 0, recharge, dateISO);
+            handleUpdate(id, 0, 0, rechargeChange, rechargeDateISO);
           }}
           onCancel={() => setEditingGameId(null)}
           onDelete={() => {}}

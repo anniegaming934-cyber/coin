@@ -33,7 +33,6 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
     useState<SidebarSection>("overview");
   const [recent, setRecent] = useState<GameEntry[]>([]);
 
-  // ✅ add paymentTotals state instead of that dummy function
   const [paymentTotals, setPaymentTotals] = useState<{
     cashapp: number;
     paypal: number;
@@ -80,7 +79,6 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
     try {
       const { data } = await apiClient.get(`${PAY_API}/totals`);
       if (data && typeof data === "object") {
-        // expect { cashapp, paypal, chime }
         setPaymentTotals({
           cashapp: Number(data.cashapp) || 0,
           paypal: Number(data.paypal) || 0,
@@ -117,6 +115,7 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
             {activeSection === "charts" && "Charts"}
             {activeSection === "paymentsHistory" && "Payment History"}
             {activeSection === "depositRecord" && "Recent Game Entries"}
+            {activeSection === "gameEntries" && "Game Entries"}
             {activeSection === "settings" && "Settings"}
           </h1>
         </header>
@@ -138,14 +137,14 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
           {/* GAME ENTRIES / PAYMENTS COMBINED TAB */}
           {activeSection === "gameEntries" && (
             <div className="mt-4">
-              <PaymentCombinedTable />
+              {/* ⭐ Pass username here as well */}
+              <PaymentCombinedTable username={username} />
             </div>
           )}
 
           {/* GAMES TAB – per-user games table */}
           {activeSection === "games" && (
             <div className="mt-4">
-              {/* 👇 now correctly filtered by logged-in username */}
               <UserTable username={username} />
             </div>
           )}

@@ -167,12 +167,12 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ onViewHistory }) => {
         isLoading={loading}
         emptyMessage="No users found."
         // 👇 click row to open full history view
-        onRowClick={(user) => onViewHistory(user._id)}
+        onRowClick={(user) => onViewHistory(user.username)}
         rowActions={{
-          onEdit: (user) => onViewHistory(user._id), // or open edit modal
-          onResetPassword: (user) => handleResetPassword(user._id),
-          onReset: (user) => handleResetStats(user._id),
-          onDelete: (user) => handleDeleteUser(user._id),
+          onEdit: (user) => onViewHistory(user.username), // or open edit modal
+          onResetPassword: (user) => handleResetPassword(user.username),
+          onReset: (user) => handleResetStats(user.username),
+          onDelete: (user) => handleDeleteUser(user.username),
         }}
       />
 

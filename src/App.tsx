@@ -15,19 +15,24 @@ const App: FC = () => {
   useEffect(() => {
     const token = localStorage.getItem("token");
     const storedRole = localStorage.getItem("role") as "admin" | "user" | null;
-    if (storedRole === "admin" || storedRole === "user") setRole(storedRole);
+
+    if (storedRole === "admin" || storedRole === "user") {
+      setRole(storedRole);
+    }
 
     if (!token) {
       setCheckingAuth(false);
       return;
     }
 
+    // 👇 IMPORTANT: use /api/auth/me (NOT /auth/me)
     apiClient
-      .get("/auth/me")
+      .get("/api/auth/me")
       .then((res) => {
         const user = res.data?.user;
         const nameFromApi: string =
           user?.name || user?.username || user?.email || "";
+
         if (!user || !nameFromApi) {
           localStorage.removeItem("token");
           localStorage.removeItem("role");
@@ -35,11 +40,13 @@ const App: FC = () => {
         }
 
         setUsername(nameFromApi);
+        localStorage.setItem("username", nameFromApi);
 
         if (user.role === "admin" || user.role === "user") {
           setRole(user.role);
           localStorage.setItem("role", user.role);
         }
+
         setIsAuthed(true);
       })
       .catch((err) => {
@@ -53,6 +60,7 @@ const App: FC = () => {
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("role");
+    localStorage.removeItem("username");
     setIsAuthed(false);
     setUsername("");
     setRole("user");
@@ -71,6 +79,7 @@ const App: FC = () => {
       <AuthCard
         onAuthSuccess={(name: string, nextRole?: "admin" | "user") => {
           setUsername(name);
+          localStorage.setItem("username", name);
           if (nextRole) setRole(nextRole);
           setIsAuthed(true);
         }}

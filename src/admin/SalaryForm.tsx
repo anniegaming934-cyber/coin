@@ -10,6 +10,8 @@ const getCurrentMonth = () => {
   return `${y}-${m}`; // "YYYY-MM"
 };
 
+const PER_ABSENT = 500; // 👈 per-day absent penalty
+
 const SalaryForm: React.FC = () => {
   const [username, setUsername] = useState("");
   const [month, setMonth] = useState(getCurrentMonth());
@@ -23,10 +25,16 @@ const SalaryForm: React.FC = () => {
   const [error, setError] = useState("");
   const [ok, setOk] = useState("");
 
+  // 👉 remainingSalary = (total - absent*500) - paid, but never below 0
   const remainingSalary = (() => {
     const total = Number(totalSalary) || 0;
     const paid = Number(paidSalary) || 0;
-    const rem = total - paid;
+    const absent = Number(daysAbsent) || 0;
+
+    const deduction = absent * PER_ABSENT;
+    const netSalary = Math.max(0, total - deduction);
+    const rem = netSalary - paid;
+
     return rem > 0 ? rem : 0;
   })();
 
@@ -49,14 +57,14 @@ const SalaryForm: React.FC = () => {
         totalSalary: Number(totalSalary),
         daysAbsent: Number(daysAbsent) || 0,
         paidSalary: Number(paidSalary) || 0,
-        remainingSalary,
+        remainingSalary, // already includes absence penalty
         dueDate: dueDate || null,
         note: note.trim() || "",
       });
 
       setOk("Salary record saved!");
 
-      // reset except username + month (you can change this if you want)
+      // reset except username + month
       setTotalSalary("");
       setDaysAbsent("");
       setPaidSalary("");
@@ -142,6 +150,9 @@ const SalaryForm: React.FC = () => {
               placeholder="0"
               className="w-full border rounded-lg px-3 py-2"
             />
+            <p className="text-xs text-gray-500 mt-1">
+              Each absent day deducts {PER_ABSENT} from salary.
+            </p>
           </div>
 
           {/* Paid Salary */}
@@ -205,6 +216,7 @@ const SalaryForm: React.FC = () => {
           </div>
         </form>
       </div>
+
       <div className="mt-5">
         <SalaryTable />
       </div>

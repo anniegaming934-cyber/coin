@@ -41,6 +41,7 @@ const SalaryTable: FC = () => {
   const [rows, setRows] = useState<SalaryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [clearingId, setClearingId] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchSalaries = async () => {
@@ -64,6 +65,57 @@ const SalaryTable: FC = () => {
 
     fetchSalaries();
   }, []);
+
+  const handleClearDue = async (row: SalaryRow) => {
+    if (row.remainingSalary <= 0) return;
+
+    const confirmClear = window.confirm(
+      `Clear remaining salary for ${row.username} (${prettyMonth(row.month)})?`
+    );
+    if (!confirmClear) return;
+
+    try {
+      setClearingId(row._id);
+      setError("");
+
+      // 👇 expects backend route: PATCH /api/salaries/:id/clear-due
+      const res = await apiClient.patch<SalaryRow>(
+        `/api/salaries/${row._id}/clear-due`
+      );
+
+      const updated = res.data;
+
+      // 🔁 update local list
+      setRows((prev) =>
+        prev.map((r) =>
+          r._id === row._id
+            ? {
+                ...r,
+                remainingSalary: updated.remainingSalary ?? 0,
+                // optional: sync other fields if backend changed them
+                totalSalary:
+                  updated.totalSalary !== undefined
+                    ? updated.totalSalary
+                    : r.totalSalary,
+                daysAbsent:
+                  updated.daysAbsent !== undefined
+                    ? updated.daysAbsent
+                    : r.daysAbsent,
+                dueDate:
+                  updated.dueDate !== undefined ? updated.dueDate : r.dueDate,
+              }
+            : r
+        )
+      );
+    } catch (err: any) {
+      console.error("Failed to clear due:", err);
+      setError(
+        err?.response?.data?.message || "Failed to clear due. Please try again."
+      );
+    } finally {
+      setClearingId(null);
+    }
+  };
 
   const columns = useMemo<ColumnDef<SalaryRow>[]>(
     () => [
@@ -129,8 +181,40 @@ const SalaryTable: FC = () => {
           return <span className="text-xs">{v}</span>;
         },
       },
+      {
+        id: "actions",
+        header: "Action",
+        cell: ({ row }) => {
+          const r = row.original;
+          const isCleared = (r.remainingSalary ?? 0) <= 0;
+          const isLoading = clearingId === r._id;
+
+          if (isCleared) {
+            return (
+              <span className="text-xs font-semibold text-emerald-600">
+                Cleared
+              </span>
+            );
+          }
+
+          return (
+            <button
+              type="button"
+              onClick={() => handleClearDue(r)}
+              disabled={isLoading}
+              className={`text-xs px-3 py-1.5 rounded-full border ${
+                isLoading
+                  ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+                  : "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+              }`}
+            >
+              {isLoading ? "Clearing..." : "Clear Due"}
+            </button>
+          );
+        },
+      },
     ],
-    []
+    [clearingId]
   );
 
   return (

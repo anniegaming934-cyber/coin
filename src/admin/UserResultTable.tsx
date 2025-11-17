@@ -1,10 +1,8 @@
 // src/user/UserResultTable.tsx
 import React, { useEffect, useState } from "react";
-
-import type { Game } from "./Gamerow";
 import { apiClient } from "../apiConfig";
 
-const GAMES_API = "/api/games";
+const SUMMARY_API = "/api/game-entries/summary";
 const TOTALS_API = "/api/totals";
 const LOGINS_API = "/api/logins";
 const COIN_VALUE = 0.15;
@@ -26,38 +24,62 @@ interface PaymentTotals {
 }
 
 interface LoginHistoryItem {
-  userName: string;
+  userName?: string;
+  username?: string;
   userEmail?: string;
-  loginTime: string; // ISO string
+  loginTime?: string; // ISO string
+  signInAt?: string; // from /api/logins
+}
+
+interface EntrySummary {
+  username: string;
+  totalDeposit: number;
+  totalFreeplay: number;
+  totalRedeem: number;
 }
 
 const UserResultTable: React.FC<UserResultTableProps> = ({ username }) => {
-  const [games, setGames] = useState<Game[]>([]);
+  const [summary, setSummary] = useState<EntrySummary>({
+    username,
+    totalDeposit: 0,
+    totalFreeplay: 0,
+    totalRedeem: 0,
+  });
   const [totals, setTotals] = useState<PaymentTotals>({
     cashapp: 0,
     paypal: 0,
     chime: 0,
   });
   const [signins, setSignins] = useState<number>(0);
-
   const [loading, setLoading] = useState(true);
 
   const loadData = async () => {
+    if (!username) return;
     try {
       setLoading(true);
 
-      const [gamesRes, totalsRes, loginsRes] = await Promise.all([
-        apiClient.get(GAMES_API),
+      const [summaryRes, totalsRes, loginsRes] = await Promise.all([
+        apiClient.get<EntrySummary>(SUMMARY_API, {
+          params: { username },
+        }),
         apiClient.get(TOTALS_API),
         apiClient.get<LoginHistoryItem[]>(
           `${LOGINS_API}?username=${encodeURIComponent(username)}`
         ),
       ]);
 
-      if (Array.isArray(gamesRes.data)) {
-        setGames(gamesRes.data);
+      // 🎯 coins from GameEntry summary
+      if (summaryRes.data) {
+        const s = summaryRes.data;
+        setSummary({
+          username: s.username,
+          totalDeposit: safeNumber(s.totalDeposit),
+          totalFreeplay: safeNumber(s.totalFreeplay),
+          totalRedeem: safeNumber(s.totalRedeem),
+        });
       }
 
+      // 💵 payments from /api/totals
       if (totalsRes.data && typeof totalsRes.data === "object") {
         setTotals({
           cashapp: safeNumber(totalsRes.data.cashapp),
@@ -66,6 +88,7 @@ const UserResultTable: React.FC<UserResultTableProps> = ({ username }) => {
         });
       }
 
+      // 🔑 sign-in count from /api/logins
       if (Array.isArray(loginsRes.data)) {
         setSignins(loginsRes.data.length);
       }
@@ -81,19 +104,7 @@ const UserResultTable: React.FC<UserResultTableProps> = ({ username }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [username]);
 
-  // aggregate coin stats from games
-  const totalFreeplay = games.reduce(
-    (sum, g) => sum + safeNumber(g.coinsEarned),
-    0
-  );
-  const totalRedeem = games.reduce(
-    (sum, g) => sum + safeNumber(g.coinsSpent),
-    0
-  );
-  const totalDeposit = games.reduce(
-    (sum, g) => sum + safeNumber(g.coinsRecharged),
-    0
-  );
+  const { totalDeposit, totalFreeplay, totalRedeem } = summary;
 
   const totalPaymentsUsd =
     safeNumber(totals.cashapp) +

@@ -5,40 +5,25 @@ import { apiClient } from "../apiConfig";
 import { DataTable } from "../DataTable";
 
 export interface UserHistoryProps {
-  userId: string;
+  // this will be used as ?username=... in the history API
+  username: string;
+}
+
+export interface HistoryMeta {
+  route?: string;
+  ip?: string;
+  note?: string;
 }
 
 export interface UserHistoryItem {
   _id: string;
-  createdAt: string;
-  gameName?: string;
-  type: "deposit" | "freeplay" | "cashin" | "cashout" | "redeem";
-  amount: number;
-}
-
-export interface UserHistoryTotals {
-  totalGames: number;
-  totalDeposit: number;
-  totalFreeplay: number;
-  totalCashIn: number;
-  totalCashOut: number;
-  totalRedeem: number;
-
-  // 🔹 new (optional, so it won't break if backend not ready yet)
-  totalPoint?: number;
-  totalPaid?: number;
-}
-
-export interface UserHistoryUser {
-  _id: string;
   username: string;
-  email?: string;
-}
-
-export interface UserHistoryResponse {
-  user: UserHistoryUser;
-  totals: UserHistoryTotals;
-  history: UserHistoryItem[];
+  action: "create" | "update" | "delete" | "clear-pending" | string;
+  entryId?: string;
+  createdAt: string;
+  before?: any;
+  after?: any;
+  meta?: HistoryMeta;
 }
 
 const fmtDateTime = (iso: string) => {
@@ -53,35 +38,83 @@ const fmtAmount = (n: number) =>
     maximumFractionDigits: 2,
   });
 
-const UserHistory: FC<UserHistoryProps> = ({ userId }) => {
-  const [userName, setUserName] = useState<string>("");
-  const [userEmail, setUserEmail] = useState<string>("");
-  const [totals, setTotals] = useState<UserHistoryTotals | null>(null);
+// pick the "current" snapshot for display (after > before)
+const getSnapshot = (item: UserHistoryItem): any => {
+  return item.after || item.before || {};
+};
+
+const getDisplayAmount = (snap: any): number => {
+  if (typeof snap.amountFinal === "number") return snap.amountFinal;
+  if (typeof snap.amountBase === "number") return snap.amountBase;
+  if (typeof snap.amount === "number") return snap.amount;
+  return 0;
+};
+
+const UserHistory: FC<UserHistoryProps> = ({ username }) => {
   const [history, setHistory] = useState<UserHistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     const loadHistory = async () => {
+      if (!username) {
+        setHistory([]);
+        return;
+      }
+
       setLoading(true);
       try {
-        const res = await apiClient.get<UserHistoryResponse>(
-          `/api/admin/users/${userId}/history`
+        const res = await apiClient.get<UserHistoryItem[]>(
+          "/api/game-entries/history",
+          {
+            params: { username },
+          }
         );
-        setUserName(res.data.user.username);
-        setUserEmail(res.data.user.email || "");
-        setTotals(res.data.totals);
-        setHistory(res.data.history);
+        setHistory(res.data || []);
       } catch (err) {
         console.error("Failed to load user history", err);
-        setTotals(null);
         setHistory([]);
       } finally {
         setLoading(false);
       }
     };
 
-    if (userId) loadHistory();
-  }, [userId]);
+    loadHistory();
+  }, [username]);
+
+  const stats = useMemo(() => {
+    const totalActions = history.length;
+    let totalCreate = 0;
+    let totalUpdate = 0;
+    let totalDelete = 0;
+    let totalClearPending = 0;
+
+    history.forEach((h) => {
+      switch (h.action) {
+        case "create":
+          totalCreate++;
+          break;
+        case "update":
+          totalUpdate++;
+          break;
+        case "delete":
+          totalDelete++;
+          break;
+        case "clear-pending":
+          totalClearPending++;
+          break;
+        default:
+          break;
+      }
+    });
+
+    return {
+      totalActions,
+      totalCreate,
+      totalUpdate,
+      totalDelete,
+      totalClearPending,
+    };
+  }, [history]);
 
   const columns = useMemo<ColumnDef<UserHistoryItem, any>[]>(
     () => [
@@ -91,110 +124,117 @@ const UserHistory: FC<UserHistoryProps> = ({ userId }) => {
         cell: ({ row }) => fmtDateTime(row.original.createdAt),
       },
       {
-        accessorKey: "gameName",
-        header: "Game",
-        cell: ({ row }) => row.original.gameName || "-",
+        accessorKey: "action",
+        header: "Action",
+        cell: ({ row }) => {
+          const a = row.original.action;
+          switch (a) {
+            case "create":
+              return "Created";
+            case "update":
+              return "Updated";
+            case "delete":
+              return "Deleted";
+            case "clear-pending":
+              return "Cleared Pending";
+            default:
+              return a;
+          }
+        },
       },
       {
-        accessorKey: "type",
+        id: "gameName",
+        header: "Game",
+        cell: ({ row }) => {
+          const snap = getSnapshot(row.original);
+          return snap.gameName || "-";
+        },
+      },
+      {
+        id: "type",
         header: "Type",
         cell: ({ row }) => {
-          const t = row.original.type;
+          const snap = getSnapshot(row.original);
+          const t = snap.type as
+            | "deposit"
+            | "freeplay"
+            | "redeem"
+            | "cashin"
+            | "cashout"
+            | string
+            | undefined;
+
           switch (t) {
             case "deposit":
               return "Deposit";
             case "freeplay":
               return "Freeplay";
+            case "redeem":
+              return "Redeem";
             case "cashin":
               return "Cash In";
             case "cashout":
               return "Cash Out";
-            case "redeem":
-              return "Redeem";
             default:
-              return t;
+              return t || "-";
           }
         },
       },
       {
-        accessorKey: "amount",
+        id: "amount",
         header: "Amount",
-        cell: ({ row }) => fmtAmount(row.original.amount),
+        cell: ({ row }) => {
+          const snap = getSnapshot(row.original);
+          const amt = getDisplayAmount(snap);
+          return fmtAmount(amt);
+        },
+      },
+      {
+        id: "route",
+        header: "Route",
+        cell: ({ row }) => row.original.meta?.route || "-",
       },
     ],
     []
   );
-
-  const safeTotals = totals || {
-    totalGames: 0,
-    totalDeposit: 0,
-    totalFreeplay: 0,
-    totalCashIn: 0,
-    totalCashOut: 0,
-    totalRedeem: 0,
-    totalPoint: 0,
-    totalPaid: 0,
-  };
 
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="flex flex-col gap-1">
         <h1 className="text-xl font-semibold">
-          User History {userName ? `· ${userName}` : ""}
+          User Activity History {username ? `· ${username}` : ""}
         </h1>
-        {userEmail && (
-          <p className="text-sm text-gray-500">Email: {userEmail}</p>
-        )}
+        <p className="text-sm text-gray-500">
+          Showing everything this user created, edited, deleted, or cleared.
+        </p>
       </div>
 
-      {/* Totals summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm">
         <div className="p-3 border rounded-md">
-          <div className="text-xs text-gray-500">Total Games</div>
-          <div className="text-lg font-semibold">{safeTotals.totalGames}</div>
+          <div className="text-xs text-gray-500">Total Actions</div>
+          <div className="text-lg font-semibold">{stats.totalActions}</div>
         </div>
 
         <div className="p-3 border rounded-md">
-          <div className="text-xs text-gray-500">Total Cash In</div>
-          <div className="text-lg font-semibold">
-            {fmtAmount(safeTotals.totalCashIn)}
-          </div>
+          <div className="text-xs text-gray-500">Created</div>
+          <div className="text-lg font-semibold">{stats.totalCreate}</div>
         </div>
 
         <div className="p-3 border rounded-md">
-          <div className="text-xs text-gray-500">Total Cash Out</div>
-          <div className="text-lg font-semibold">
-            {fmtAmount(safeTotals.totalCashOut)}
-          </div>
+          <div className="text-xs text-gray-500">Updated</div>
+          <div className="text-lg font-semibold">{stats.totalUpdate}</div>
         </div>
 
         <div className="p-3 border rounded-md">
-          <div className="text-xs text-gray-500">Total Freeplay</div>
-          <div className="text-lg font-semibold">
-            {fmtAmount(safeTotals.totalFreeplay)}
-          </div>
+          <div className="text-xs text-gray-500">Deleted</div>
+          <div className="text-lg font-semibold">{stats.totalDelete}</div>
         </div>
 
         <div className="p-3 border rounded-md">
-          <div className="text-xs text-gray-500">Total Redeem</div>
-          <div className="text-lg font-semibold">
-            {fmtAmount(safeTotals.totalRedeem)}
-          </div>
-        </div>
-
-        <div className="p-3 border rounded-md">
-          <div className="text-xs text-gray-500">Total Point</div>
-          <div className="text-lg font-semibold">
-            {fmtAmount(safeTotals.totalPoint ?? 0)}
-          </div>
-        </div>
-
-        <div className="p-3 border rounded-md">
-          <div className="text-xs text-gray-500">Total Paid</div>
-          <div className="text-lg font-semibold">
-            {fmtAmount(safeTotals.totalPaid ?? 0)}
-          </div>
+          <div className="text-xs text-gray-500">Cleared Pending</div>
+          <div className="text-lg font-semibold">{stats.totalClearPending}</div>
         </div>
       </div>
 
@@ -203,7 +243,7 @@ const UserHistory: FC<UserHistoryProps> = ({ userId }) => {
         columns={columns}
         data={history}
         isLoading={loading}
-        emptyMessage="No history records found."
+        emptyMessage="No history records found for this user."
         onRowClick={(row) => console.log("history row clicked", row)}
       />
     </div>

@@ -1,4 +1,4 @@
-import React, { useState, type FC } from "react";
+import React, { useEffect, useState, type FC } from "react";
 import {
   TrendingUp,
   TrendingDown,
@@ -9,15 +9,20 @@ import {
   RotateCcw,
   Trash2,
 } from "lucide-react";
+import { apiClient } from "../apiConfig";
 
 export interface Game {
   id: number;
   name: string;
-  coinsSpent: number; // freeplay + deposit (for net calc)
-  coinsEarned: number; // redeem (for net calc)
+
+  // These may now come as 0 / undefined from backend,
+  // but we keep them for compatibility.
+  coinsSpent?: number;
+  coinsEarned?: number;
+
   coinsRecharged: number; // coin top-up (editable)
   lastRechargeDate?: string; // editable with recharge
-  totalCoins?: number; // optional, from backend
+  totalCoins?: number; // optional, from backend (not required now)
 }
 
 interface GameRowProps {
@@ -70,15 +75,9 @@ const GameRow: FC<GameRowProps> = ({
     game.lastRechargeDate || toTodayISO()
   );
 
-  const netCoinFlow =
-    game.coinsEarned - (game.coinsSpent + game.coinsRecharged);
-  const pnl = netCoinFlow * coinValue;
-  const isProfit = pnl >= 0;
-
-  const pnlClass = isProfit
-    ? "text-emerald-600 bg-emerald-100"
-    : "text-red-600 bg-red-100";
-  const PnlIcon = isProfit ? TrendingUp : TrendingDown;
+  // 🔢 Total coins from /api/game-entries (deposit + freeplay)
+  const [totalFromEntries, setTotalFromEntries] = useState<number>(0);
+  const [loadingEntries, setLoadingEntries] = useState<boolean>(false);
 
   const inputBox =
     "w-full p-2 text-sm border border-gray-700 rounded-md bg-[#0b1222] text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500";
@@ -89,33 +88,69 @@ const GameRow: FC<GameRowProps> = ({
     return Number.isFinite(n) && n >= 0 ? n : NaN;
   };
 
-  const handleLogTransaction = () => {
-    // spent and redeem are no longer editable
-    const spentChange = 0;
-    const earnedChange = 0;
-    const rechargeChange = toNonNegNumber(rechargeStr);
+  // 🧮 Load totals from /api/game-entries for this game
+  useEffect(() => {
+    const loadTotals = async () => {
+      try {
+        setLoadingEntries(true);
+        const { data } = await apiClient.get("/api/game-entries", {
+          params: { gameName: game.name },
+        });
 
+        const entries = Array.isArray(data) ? data : [];
+        const sum = entries.reduce((acc: number, e: any) => {
+          const t = String(e.type || "").toLowerCase();
+          if (t === "deposit" || t === "freeplay") {
+            const amt = Number(e.amountFinal ?? e.amount ?? 0) || 0; // prefer amountFinal
+            return acc + (Number.isFinite(amt) ? amt : 0);
+          }
+          return acc;
+        }, 0);
+
+        setTotalFromEntries(sum);
+      } catch (err) {
+        console.error(
+          "Failed to load game entry totals for game:",
+          game.name,
+          err
+        );
+        setTotalFromEntries(0);
+      } finally {
+        setLoadingEntries(false);
+      }
+    };
+
+    loadTotals();
+  }, [game.name]);
+
+  // Total coins = from entries (deposit + freeplay)
+  // You can also add coinsRecharged if you want:
+  // const totalCoinValue = totalFromEntries + (game.coinsRecharged || 0);
+  const totalCoinValue = totalFromEntries;
+
+  const pnl = totalCoinValue * coinValue;
+  const isProfit = pnl >= 0;
+
+  const pnlClass = isProfit
+    ? "text-emerald-600 bg-emerald-100"
+    : "text-red-600 bg-red-100";
+  const PnlIcon = isProfit ? TrendingUp : TrendingDown;
+
+  const handleLogTransaction = () => {
+    const rechargeChange = toNonNegNumber(rechargeStr);
     if (!Number.isFinite(rechargeChange)) return;
 
     const dateOrUndefined =
       rechargeChange > 0 ? rechargeDateISO || toTodayISO() : undefined;
 
-    // recompute preview total (front-end only; backend is source of truth)
-    const newCoinsSpent = game.coinsSpent + spentChange;
-    const newCoinsEarned = game.coinsEarned + earnedChange;
-    const newCoinsRecharged = game.coinsRecharged + rechargeChange;
+    const newCoinsRecharged = (game.coinsRecharged || 0) + rechargeChange;
 
-    const totalCoinsRaw = newCoinsEarned - (newCoinsSpent + newCoinsRecharged);
-    const totalCoinsAfter = Math.abs(totalCoinsRaw);
+    // You can choose what totalCoinsAfter means here; we’ll use:
+    // total from entries + new recharge (for backend if it wants to store something)
+    const totalCoinsAfter = Math.abs(totalFromEntries + newCoinsRecharged);
 
-    onUpdate(
-      game.id,
-      spentChange,
-      earnedChange,
-      rechargeChange,
-      totalCoinsAfter,
-      dateOrUndefined
-    );
+    // 🔁 FIX: match onUpdate signature (spentChange, earnedChange, rechargeChange, totalCoinsAfter, date)
+    onUpdate(game.id, 0, 0, rechargeChange, totalCoinsAfter, dateOrUndefined);
 
     setRechargeStr("");
     onCancel();
@@ -214,13 +249,6 @@ const GameRow: FC<GameRowProps> = ({
     );
   }
 
-  // ===== Table row (no Redeem column, no Redeem action) =====
-  const derivedNet = game.coinsEarned - (game.coinsSpent + game.coinsRecharged);
-  const totalCoinValue =
-    typeof game.totalCoins === "number"
-      ? game.totalCoins
-      : Math.abs(derivedNet);
-
   const nameCell = (
     <div className="flex items-center space-x-3">
       <Gamepad size={20} className="text-indigo-500 hidden md:block" />
@@ -230,40 +258,45 @@ const GameRow: FC<GameRowProps> = ({
 
   return (
     <div className="grid grid-cols-12 gap-4 py-4 px-4 hover:bg-gray-50 transition duration-150 border-b border-gray-200">
+      {/* Game name */}
       <div className="col-span-4">{nameCell}</div>
 
+      {/* Coins recharged */}
       <div className="col-span-2 text-sm text-gray-700">
         <span className="font-mono text-blue-600">
           {game.coinsRecharged.toLocaleString()}
         </span>
       </div>
 
+      {/* Last recharge date */}
       <div className="col-span-2 text-sm text-gray-700">
         <span className="text-[12px] text-gray-600">
           {game.lastRechargeDate || "—"}
         </span>
       </div>
 
+      {/* Total coin (from game-entries deposit + freeplay) */}
       <div className="col-span-2 text-sm">
         <span
           className={`font-mono ${
-            derivedNet < 0
-              ? "text-green-700"
-              : derivedNet > 0
+            totalCoinValue < 0
               ? "text-red-700"
+              : totalCoinValue > 0
+              ? "text-green-700"
               : "text-gray-500"
           }`}
         >
-          {totalCoinValue.toLocaleString()}
+          {loadingEntries ? "…" : totalCoinValue.toLocaleString()}
         </span>
       </div>
 
+      {/* PnL + actions */}
       <div className="col-span-2 text-sm flex items-center justify-end space-x-2">
         <span
           className={`px-2 py-1 rounded-full text-xs font-bold flex items-center ${pnlClass} w-24 justify-center`}
         >
           <PnlIcon size={14} className="mr-1" />
-          {formatCurrency(derivedNet * coinValue)}
+          {formatCurrency(pnl)}
         </span>
 
         <button
