@@ -1,8 +1,8 @@
 import React, { FC, useEffect, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { apiClient } from "../apiConfig";
-
 import { Loader2, AlertTriangle } from "lucide-react";
+
+import { apiClient } from "../apiConfig";
 import { DataTable } from "../DataTable";
 
 export interface UserSummary {
@@ -15,9 +15,9 @@ export interface UserSummary {
   totalRedeem: number;
 }
 
-// 👇 This is the props interface you asked about
 export interface UserAdminTableProps {
-  onViewHistory: (userId: string) => void;
+  // we pass *username* up so AdminDashboard can show history by username
+  onViewHistory: (username: string) => void;
 }
 
 const fmtAmount = (n: number) =>
@@ -30,21 +30,14 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ onViewHistory }) => {
   const [users, setUsers] = useState<UserSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-
-  // optional: loading state for row-level actions
   const [actionUserId, setActionUserId] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchUsers();
-  }, []);
 
   const fetchUsers = async () => {
     setLoading(true);
     setError("");
     try {
-      // adjust endpoint to match your backend
       const { data } = await apiClient.get<UserSummary[]>("/api/admin/users");
-      setUsers(data || []);
+      setUsers(Array.isArray(data) ? data : []);
     } catch (e) {
       console.error("Failed to load users:", e);
       setError("Failed to load users.");
@@ -53,37 +46,15 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ onViewHistory }) => {
     }
   };
 
-  const handleResetStats = async (userId: string) => {
-    try {
-      setActionUserId(userId);
-      // adjust endpoint as needed
-      await apiClient.post(`/api/admin/users/${userId}/reset-stats`);
-      await fetchUsers();
-    } catch (e) {
-      console.error("Failed to reset stats:", e);
-    } finally {
-      setActionUserId(null);
-    }
-  };
+  useEffect(() => {
+    fetchUsers();
+  }, []);
 
-  const handleResetPassword = async (userId: string) => {
+  const handleDeleteUser = async (id: string) => {
+    if (!window.confirm("Delete this user?")) return;
     try {
-      setActionUserId(userId);
-      // adjust endpoint as needed
-      await apiClient.post(`/api/admin/users/${userId}/reset-password`);
-    } catch (e) {
-      console.error("Failed to reset password:", e);
-    } finally {
-      setActionUserId(null);
-    }
-  };
-
-  const handleDeleteUser = async (userId: string) => {
-    if (!window.confirm("Delete this user and their data?")) return;
-    try {
-      setActionUserId(userId);
-      // adjust endpoint as needed
-      await apiClient.delete(`/api/admin/users/${userId}`);
+      setActionUserId(id);
+      await apiClient.delete(`/api/admin/users/${id}`);
       await fetchUsers();
     } catch (e) {
       console.error("Failed to delete user:", e);
@@ -98,7 +69,9 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ onViewHistory }) => {
         accessorKey: "username",
         header: "Username",
         cell: ({ row }) => (
-          <span className="font-medium">{row.original.username}</span>
+          <span className="font-medium text-gray-800">
+            {row.original.username || "-"}
+          </span>
         ),
       },
       {
@@ -106,38 +79,26 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ onViewHistory }) => {
         header: "Email",
         cell: ({ row }) => row.original.email || "-",
       },
-      // {
-      //   accessorKey: "lastSignInAt",
-      //   header: "Last Sign In",
-      //   cell: ({ row }) => fmtDateTime(row.original.lastSignInAt),
-      // },
-      // {
-      //   accessorKey: "lastSignOutAt",
-      //   header: "Last Sign Out",
-      //   cell: ({ row }) => fmtDateTime(row.original.lastSignOutAt),
-      // },
       {
         accessorKey: "totalDeposit",
         header: "Deposit",
-        cell: ({ row }) => fmtAmount(row.original.totalDeposit),
+        cell: ({ row }) => fmtAmount(row.original.totalDeposit || 0),
       },
       {
         accessorKey: "totalFreeplay",
         header: "Freeplay",
-        cell: ({ row }) => fmtAmount(row.original.totalFreeplay),
+        cell: ({ row }) => fmtAmount(row.original.totalFreeplay || 0),
       },
       {
         accessorKey: "totalRedeem",
         header: "Redeem",
-        cell: ({ row }) => fmtAmount(row.original.totalRedeem),
+        cell: ({ row }) => fmtAmount(row.original.totalRedeem || 0),
       },
       {
         accessorKey: "totalPayments",
         header: "Payments",
-        cell: ({ row }) => fmtAmount(row.original.totalPayments),
+        cell: ({ row }) => fmtAmount(row.original.totalPayments || 0),
       },
-      // we do NOT define actions column here –
-      // DataTable already adds actions via rowActions
     ];
   }, []);
 
@@ -145,6 +106,7 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ onViewHistory }) => {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">User Admin</h2>
+
         <button
           onClick={fetchUsers}
           disabled={loading}
@@ -166,13 +128,17 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ onViewHistory }) => {
         data={users}
         isLoading={loading}
         emptyMessage="No users found."
-        // 👇 click row to open full history view
-        onRowClick={(user) => onViewHistory(user.username)}
+        // Click row → open history for that username
+        onRowClick={(user) => {
+          if (user.username) onViewHistory(user.username);
+        }}
         rowActions={{
-          onEdit: (user) => onViewHistory(user.username), // or open edit modal
-          onResetPassword: (user) => handleResetPassword(user.username),
-          onReset: (user) => handleResetStats(user.username),
-          onDelete: (user) => handleDeleteUser(user.username),
+          onEdit: (user) => {
+            if (user.username) onViewHistory(user.username);
+          },
+          onDelete: (user) => {
+            if (user._id) handleDeleteUser(user._id);
+          },
         }}
       />
 

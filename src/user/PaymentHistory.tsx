@@ -6,12 +6,13 @@ import { Loader2, Pencil, Trash2, X, Check, AlertTriangle } from "lucide-react";
 export type PaymentMethod = "cashapp" | "paypal" | "chime";
 type PaymentType = "deposit" | "redeem" | "freeplay" | "cashin" | "cashout";
 type FilterType = "all" | PaymentType;
-// 👇 You mainly care about pending/paid here, others kept for compatibility
-type PaymentStatus = "pending" | "paying" | "paid" | "remaining";
+
+// ✅ Added "received" here
+type PaymentStatus = "pending" | "paying" | "paid" | "remaining" | "received";
 
 interface Payment {
-  id?: string; // some APIs use this
-  _id?: string; // Mongoose default
+  id?: string;
+  _id?: string;
   amount: number;
   amountBase?: number;
   amountFinal?: number;
@@ -22,22 +23,22 @@ interface Payment {
   playerName?: string | null;
   gameName?: string | null;
   type: PaymentType;
-  date: string; // "YYYY-MM-DD"
-  createdAt: string; // ISO
+  date: string;
+  createdAt: string;
   status?: PaymentStatus;
 
-  // 🔹 used for cashout math (optional from backend)
-  paidAmount?: number;
+  totalCashout?: number;
+  totalPaid?: number;
+  remainingPay?: number;
 }
 
 interface PaymentHistoryProps {
-  apiBase: string; // e.g. "/api"
+  apiBase: string;
 }
 
 const fmtUSD = (n: number) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD" });
 
-// 12-hour time formatter (you can later swap to Nepal TZ if you want)
 const fmtTime12h = (iso: string | undefined) => {
   if (!iso) return "";
   const d = new Date(iso);
@@ -49,40 +50,35 @@ const fmtTime12h = (iso: string | undefined) => {
   });
 };
 
-// 👇 Map backend type to display label
 const getDisplayTypeLabel = (t: PaymentType) => {
-  if (t === "deposit" || t === "cashin") return "CASHIN"; // Cash In
-  if (t === "redeem" || t === "cashout") return "CASHOUT"; // Cash Out
+  if (t === "deposit" || t === "cashin") return "CASHIN";
+  if (t === "redeem" || t === "cashout") return "CASHOUT";
   return t.toUpperCase();
 };
 
-// ✅ Helper: only these are treated as CASHOUT-editable rows
 const isCashOutType = (t: PaymentType) => t === "redeem" || t === "cashout";
 
 const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
   const [date, setDate] = useState<string>(() => {
     const d = new Date();
-    return d.toISOString().slice(0, 10); // yyyy-mm-dd
+    return d.toISOString().slice(0, 10);
   });
 
   const [payments, setPayments] = useState<Payment[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // 🔽 filter by "type" field
   const [filterType, setFilterType] = useState<FilterType>("all");
 
-  // editing state
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editType, setEditType] = useState<PaymentType>("deposit");
-  const [editAmount, setEditAmount] = useState<string>(""); // total cashout
-  const [editPaid, setEditPaid] = useState<string>(""); // paid cost
+  const [editAmount, setEditAmount] = useState<string>("");
+  const [editPaid, setEditPaid] = useState<string>("");
   const [editMethod, setEditMethod] = useState<PaymentMethod>("cashapp");
-  const [editName, setEditName] = useState<string>(""); // playerName
+  const [editName, setEditName] = useState<string>("");
   const [editStatus, setEditStatus] = useState<PaymentStatus>("pending");
-  const [editNote, setEditNote] = useState<string>(""); // optional note, still captured
+  const [editNote, setEditNote] = useState<string>("");
 
-  // delete modal state
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Payment | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -119,7 +115,6 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date]);
 
-  // ✅ start editing a row — ONLY for cashout types
   const startEdit = (p: Payment) => {
     if (!isCashOutType(p.type)) return;
 
@@ -127,12 +122,14 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
     const status: PaymentStatus = p.status ?? "pending";
 
     setEditingId(rowId);
-    setEditType(p.type); // redeem/cashout
-    setEditAmount(String(p.amount));
+    setEditType(p.type);
+
+    const totalToShow = p.amountFinal ?? p.totalCashout ?? p.amount;
+    setEditAmount(String(totalToShow));
 
     setEditPaid(
-      p.paidAmount != null && !Number.isNaN(p.paidAmount)
-        ? String(p.paidAmount)
+      p.totalPaid != null && !Number.isNaN(p.totalPaid)
+        ? String(p.totalPaid)
         : ""
     );
 
@@ -153,7 +150,6 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
     setEditNote("");
   };
 
-  // ✅ Save edit — includes total / paid / remaining → status auto
   const saveEdit = async (id: string) => {
     const total = Number(editAmount);
     if (!Number.isFinite(total) || total <= 0) {
@@ -172,9 +168,6 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
         alert("Enter a valid paid amount (0 or more).");
         return;
       }
-
-      // 👇 Auto-status from amounts:
-      // if total == paid → paid (green); else → pending (yellow).
       statusToSend = paidAmount >= total ? "paid" : "pending";
     }
 
@@ -182,20 +175,27 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
       setLoading(true);
 
       const payload: any = {
-        amount: total,
-        method: editMethod,
-        playerName: editName.trim() || null,
-        status: statusToSend,
         type: editType,
-        note: editNote.trim() || null,
+        method: editMethod,
+        playerName: editName.trim() || "",
+        note: editNote.trim() || "",
         date,
       };
 
       if (isCashOut) {
-        payload.paidAmount = paidAmount;
+        const paidValue = paidAmount ?? 0;
+        const remaining = Math.max(total - paidValue, 0);
+
+        payload.amountFinal = total;
+        payload.totalCashout = total;
+        payload.totalPaid = paidValue;
+        payload.remainingPay = remaining;
+        payload.isPending = statusToSend !== "paid";
+      } else {
+        payload.amount = total;
       }
 
-      await apiClient.put(`${apiBase}/payments/${id}`, payload);
+      await apiClient.put(`${apiBase}/game-entries/${id}`, payload);
 
       await loadPayments();
       cancelEdit();
@@ -207,7 +207,6 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
     }
   };
 
-  // open delete modal
   const openDeleteModal = (p: Payment) => {
     const rowId = p.id || p._id || "";
     setDeleteId(rowId);
@@ -220,7 +219,7 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
 
     try {
       setDeleting(true);
-      await apiClient.delete(`${apiBase}/payments/${deleteId}`);
+      await apiClient.delete(`${apiBase}/game-entries/${deleteId}`);
       await loadPayments();
       setShowDeleteModal(false);
       setDeleteId(null);
@@ -240,13 +239,13 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
     setDeleteTarget(null);
   };
 
-  // filter by type (deposit, redeem, cashout, etc.)
   const filteredPayments = payments.filter((p) => {
+    if (p.date && p.date !== date) return false;
     if (filterType === "all") return true;
     return p.type === filterType;
   });
 
-  // status badge helper
+  // ✅ Updated to handle "received"
   const renderStatusBadge = (status: PaymentStatus | undefined) => {
     const s: PaymentStatus = status ?? "pending";
     const base =
@@ -277,7 +276,15 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
         </span>
       );
     }
-    // pending
+    if (s === "received") {
+      return (
+        <span
+          className={`${base} bg-emerald-50 text-emerald-700 border-emerald-100`}
+        >
+          Received
+        </span>
+      );
+    }
     return (
       <span
         className={`${base} bg-yellow-50 text-yellow-700 border-yellow-100`}
@@ -287,12 +294,10 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
     );
   };
 
-  // type badge helper (deposit → CASHIN, redeem → CASHOUT)
   const renderTypeBadge = (t: PaymentType) => {
     const base =
       "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border";
 
-    // deposit OR cashin => CASHIN (green)
     if (t === "deposit" || t === "cashin") {
       return (
         <span
@@ -303,7 +308,6 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
       );
     }
 
-    // redeem OR cashout => CASHOUT (red)
     if (t === "redeem" || t === "cashout") {
       return (
         <span className={`${base} bg-red-50 text-red-700 border-red-100`}>
@@ -312,7 +316,6 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
       );
     }
 
-    // freeplay (neutral)
     return (
       <span className={`${base} bg-gray-50 text-gray-700 border-gray-200`}>
         {getDisplayTypeLabel(t)}
@@ -329,7 +332,6 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
           </h2>
 
           <div className="flex flex-wrap items-end gap-4">
-            {/* Date picker */}
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">
                 Select Date
@@ -342,7 +344,6 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
               />
             </div>
 
-            {/* Type filter (by "type" field) */}
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">
                 Type
@@ -353,9 +354,7 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                 className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:ring-2 focus:ring-indigo-500"
               >
                 <option value="all">All</option>
-                {/* deposit → Cash In */}
                 <option value="deposit">Cash In</option>
-                {/* redeem → Cash Out */}
                 <option value="redeem">Cash Out</option>
               </select>
             </div>
@@ -404,18 +403,25 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                   const time = fmtTime12h(p.createdAt);
                   const isEditing = editingId === rowId;
 
-                  const totalToShow = p.amountFinal ?? p.amount;
-                  const paidAmount = p.paidAmount ?? 0;
-                  const remaining = Math.max(totalToShow - paidAmount, 0);
+                  const totalToShow =
+                    p.amountFinal ?? p.totalCashout ?? p.amount;
+                  const paidAmount = p.totalPaid ?? 0;
+                  const remaining =
+                    p.remainingPay != null
+                      ? p.remainingPay
+                      : Math.max(totalToShow - paidAmount, 0);
                   const nameToShow = p.playerName || p.note || "—";
 
                   const isCashOut = isCashOutType(p.type);
 
-                  // For cashout, compute effective status based on amounts (for display)
+                  // ✅ compute status
                   let effectiveStatus: PaymentStatus = p.status ?? "pending";
                   if (isCashOut) {
                     effectiveStatus =
                       totalToShow > 0 && remaining <= 0 ? "paid" : "pending";
+                  } else if (p.type === "deposit" || p.type === "cashin") {
+                    // ✅ For CASHIN / deposit, always show "Received"
+                    effectiveStatus = "received";
                   }
 
                   if (isEditing) {
@@ -426,12 +432,10 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
 
                     return (
                       <tr key={rowId} className="bg-indigo-50/40">
-                        {/* Type (read-only badge while editing) */}
                         <td className="px-3 py-2">
                           {renderTypeBadge(editType)}
                         </td>
 
-                        {/* Method edit */}
                         <td className="px-3 py-2">
                           <select
                             value={editMethod}
@@ -446,7 +450,6 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                           </select>
                         </td>
 
-                        {/* Total / Total Cashout edit */}
                         <td className="px-3 py-2">
                           <label className="block text-[10px] text-gray-500 mb-0.5">
                             {isEditingCashOut ? "Total Cashout" : "Amount"}
@@ -461,7 +464,6 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                           />
                         </td>
 
-                        {/* Remaining / Paid Cost for cashout */}
                         <td className="px-3 py-2">
                           {isEditingCashOut ? (
                             <>
@@ -488,7 +490,6 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                           )}
                         </td>
 
-                        {/* Name (playerName) edit */}
                         <td className="px-3 py-2">
                           <input
                             type="text"
@@ -499,7 +500,6 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                           />
                         </td>
 
-                        {/* Status select (pending / paid for cashout) */}
                         <td className="px-3 py-2">
                           <select
                             value={editStatus}
@@ -519,15 +519,14 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                                 <option value="paying">Paying</option>
                                 <option value="paid">Paid</option>
                                 <option value="remaining">Remaining</option>
+                                <option value="received">Received</option>
                               </>
                             )}
                           </select>
                         </td>
 
-                        {/* Time (read-only) */}
                         <td className="px-3 py-2 text-gray-500">{time}</td>
 
-                        {/* Actions */}
                         <td className="px-3 py-2">
                           <div className="flex justify-end gap-2">
                             <button
@@ -552,21 +551,13 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                     );
                   }
 
-                  // normal row
                   return (
                     <tr key={rowId} className="hover:bg-gray-50">
-                      {/* Type */}
                       <td className="px-3 py-2">{renderTypeBadge(p.type)}</td>
-
-                      {/* Method */}
                       <td className="px-3 py-2 capitalize">{p.method}</td>
-
-                      {/* Total */}
                       <td className="px-3 py-2 font-medium text-gray-800">
                         {fmtUSD(totalToShow)}
                       </td>
-
-                      {/* Remaining */}
                       <td className="px-3 py-2">
                         {isCashOut ? (
                           <span className="font-medium text-gray-800">
@@ -576,19 +567,11 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                           <span className="text-gray-400 text-xs">—</span>
                         )}
                       </td>
-
-                      {/* Name */}
                       <td className="px-3 py-2 text-gray-700">{nameToShow}</td>
-
-                      {/* Status */}
                       <td className="px-3 py-2">
                         {renderStatusBadge(effectiveStatus)}
                       </td>
-
-                      {/* Time */}
                       <td className="px-3 py-2 text-gray-500">{time}</td>
-
-                      {/* Actions – ✅ Only CashOut can be edited */}
                       <td className="px-3 py-2">
                         <div className="flex justify-end gap-2">
                           {isCashOut ? (
@@ -611,9 +594,14 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                               </button>
                             </>
                           ) : (
-                            <span className="text-xs text-gray-400">
-                              Only Cash Out editable
-                            </span>
+                            <button
+                              type="button"
+                              onClick={() => openDeleteModal(p)}
+                              className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2.5 py-1.5 text-xs font-semibold text-red-700 border border-red-200 hover:bg-red-100"
+                            >
+                              <Check className="h-3 w-3" />
+                              Mark Failed
+                            </button>
                           )}
                         </div>
                       </td>
@@ -626,7 +614,6 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
         )}
       </div>
 
-      {/* Delete Confirmation Modal */}
       {showDeleteModal && deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
@@ -636,14 +623,23 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
               </div>
               <div>
                 <h3 className="text-lg font-semibold text-gray-900">
-                  Delete this payment?
+                  {deleteTarget.type === "deposit" ||
+                  deleteTarget.type === "cashin"
+                    ? "Mark this Cash In as failed?"
+                    : "Delete this payment?"}
                 </h3>
                 <p className="mt-1 text-sm text-gray-500">
-                  You&apos;re about to delete a{" "}
+                  You&apos;re about to{" "}
+                  {deleteTarget.type === "deposit" ||
+                  deleteTarget.type === "cashin"
+                    ? "remove this Cash In from your payments."
+                    : "delete this payment."}{" "}
                   <span className="font-semibold">
-                    {fmtUSD(deleteTarget.amountFinal ?? deleteTarget.amount)}
+                    {fmtUSD(
+                      deleteTarget.amountFinal ?? deleteTarget.amount ?? 0
+                    )}
                   </span>{" "}
-                  {getDisplayTypeLabel(deleteTarget.type)} payment via{" "}
+                  {getDisplayTypeLabel(deleteTarget.type)} via{" "}
                   <span className="font-semibold">{deleteTarget.method}</span>{" "}
                   for{" "}
                   <span className="font-semibold">
@@ -667,7 +663,10 @@ const PaymentHistory: FC<PaymentHistoryProps> = ({ apiBase }) => {
                 ) : (
                   <Trash2 className="h-4 w-4" />
                 )}
-                Delete payment
+                {deleteTarget.type === "deposit" ||
+                deleteTarget.type === "cashin"
+                  ? "Yes, mark as failed"
+                  : "Delete payment"}
               </button>
               <button
                 type="button"

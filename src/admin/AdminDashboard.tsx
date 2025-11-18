@@ -2,14 +2,14 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FC } from "react";
 import { apiClient } from "../apiConfig";
-import GameRow from "./Gamerow"; // used ONLY for the modal when editing
+import GameRow from "./Gamerow";
 import AddGameForm from "./Addgame";
 import PaymentForm, { type PaymentFormProps } from "../user/Paymentform";
 import PaymentHistory from "../user/PaymentHistory";
 import Sidebar, { type SidebarSection } from "./Sidebar";
 import FacebookLeadForm from "../FacebookLeadForm";
 import UserAdminTable from "./UserAdminTable";
-import UserHistory from "./AdminUserHistory"; // ✅ make sure this accepts `username` prop
+import UserHistory from "./AdminUserHistory"; // ✅ accepts `userId` prop
 import AdminUserActivityTable from "./AdminUserActivityTable";
 import { DataTable } from "../DataTable";
 import { ColumnDef } from "@tanstack/react-table";
@@ -21,7 +21,6 @@ import {
   TrendingUp,
   Gamepad,
 } from "lucide-react";
-import SalaryTable from "./SalaryTable";
 import SalaryForm from "./SalaryForm";
 
 interface Game {
@@ -50,8 +49,8 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
   const [activeSection, setActiveSection] =
     useState<SidebarSection>("overview");
 
-  // 👉 this is the username we pass to UserHistory and backend history APIs
-  const [selectedUsername, setSelectedUsername] = useState<string | null>(null);
+  // 👉 this is the username we pass to UserHistory and backend APIs
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
   const [paymentTotals, setPaymentTotals] = useState({
     cashapp: 0,
@@ -68,7 +67,6 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
     fetchGames();
     fetchTotals();
     fetchSignins();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchGames = async () => {
@@ -132,6 +130,9 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
     (sum, g) => sum + (Number(g.coinsRecharged) || 0),
     0
   );
+
+  // total “coin records” = number of game rows
+  const totalCoinRecords = games.length;
 
   const totalPaymentsUsd =
     (Number(paymentTotals.cashapp) || 0) +
@@ -362,10 +363,8 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
         ),
       },
     ];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [games]);
 
-  // small helper to pick the game currently being edited (for the modal)
   const editingGame = useMemo(
     () => games.find((g) => g.id === editingGameId) || null,
     [games, editingGameId]
@@ -443,13 +442,10 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
 
                       <tr>
                         <td className="px-4 py-2 text-gray-700">
-                          Total Deposit (coins)
+                          Total Coin Records
                         </td>
-                        <td className="px-4 py-2 text-right font-semibold text-indigo-600">
-                          {totalDeposit.toLocaleString()}{" "}
-                          <span className="ml-1 text-[11px] text-slate-400">
-                            ({formatCurrency(totalDeposit * COIN_VALUE)})
-                          </span>
+                        <td className="px-4 py-2 text-right font-semibold">
+                          {totalCoinRecords}
                         </td>
                       </tr>
 
@@ -467,6 +463,18 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
 
                       <tr>
                         <td className="px-4 py-2 text-gray-700">
+                          Total Deposit (coins)
+                        </td>
+                        <td className="px-4 py-2 text-right font-semibold text-indigo-600">
+                          {totalDeposit.toLocaleString()}{" "}
+                          <span className="ml-1 text-[11px] text-slate-400">
+                            ({formatCurrency(totalDeposit * COIN_VALUE)})
+                          </span>
+                        </td>
+                      </tr>
+
+                      <tr>
+                        <td className="px-4 py-2 text-gray-700">
                           Total Redeem (coins)
                         </td>
                         <td className="px-4 py-2 text-right font-semibold text-red-600">
@@ -474,6 +482,31 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                           <span className="ml-1 text-[11px] text-slate-400">
                             ({formatCurrency(totalRedeem * COIN_VALUE)})
                           </span>
+                        </td>
+                      </tr>
+
+                      <tr>
+                        <td className="px-4 py-2 text-gray-700">
+                          Revenue from Deposit (CashApp)
+                        </td>
+                        <td className="px-4 py-2 text-right font-semibold text-gray-800">
+                          {formatCurrency(Number(paymentTotals.cashapp) || 0)}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="px-4 py-2 text-gray-700">
+                          Revenue from Deposit (PayPal)
+                        </td>
+                        <td className="px-4 py-2 text-right font-semibold text-gray-800">
+                          {formatCurrency(Number(paymentTotals.paypal) || 0)}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="px-4 py-2 text-gray-700">
+                          Revenue from Deposit (Chime)
+                        </td>
+                        <td className="px-4 py-2 text-right font-semibold text-gray-800">
+                          {formatCurrency(Number(paymentTotals.chime) || 0)}
                         </td>
                       </tr>
 
@@ -503,7 +536,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                 <AddGameForm onGameAdded={fetchGames} />
               </div>
 
-              {/* Games list — now DataTable */}
+              {/* Games list — DataTable */}
               <div className="mt-8 overflow-hidden rounded-lg border border-gray-200 shadow-sm bg-white p-2">
                 <DataTable columns={gameColumns} data={games} />
               </div>
@@ -542,8 +575,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
           {activeSection === "UserAdminTable" && (
             <UserAdminTable
               onViewHistory={(usernameForHistory: string) => {
-                // username for which we want to see history
-                setSelectedUsername(usernameForHistory);
+                setSelectedUserId(usernameForHistory); // ✅ store username here
                 setActiveSection("userHistroy");
               }}
             />
@@ -552,14 +584,14 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
           {/* USER HISTORY TAB */}
           {activeSection === "userHistroy" && (
             <>
-              {!selectedUsername && (
+              {!selectedUserId && (
                 <div className="mb-4 text-sm text-gray-600">
                   Please select a user from{" "}
                   <span className="font-semibold">User Admin</span> to view
                   their activity history.
                 </div>
               )}
-              {selectedUsername && <UserHistory username={selectedUsername} />}
+              {selectedUserId && <UserHistory userId={selectedUserId} />}
             </>
           )}
 
