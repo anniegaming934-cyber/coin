@@ -1,4 +1,6 @@
-# Logs
+# -------------------------
+# LOGS
+# -------------------------
 logs
 *.log
 npm-debug.log*
@@ -7,15 +9,39 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# -------------------------
+# NODE MODULES
+# -------------------------
+node_modules/
+api/node_modules/
 
-# Editor directories and files
-.vscode/*
+# -------------------------
+# FRONTEND BUILD
+# -------------------------
+dist/
+dist-ssr/
+.vite/
+
+# -------------------------
+# IGNORE BACKEND (API)
+# -------------------------
+api/
+
+# -------------------------
+# ENV FILES
+# -------------------------
+*.local
+.env
+.env.local
+.env.*
+!.env.example
+
+# -------------------------
+# EDITOR + OS FILES
+# -------------------------
+.vscode/
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
 *.suo
 *.ntvs*
@@ -23,4 +49,13 @@ dist-ssr
 *.sln
 *.sw?
 
-.vercel
+# -------------------------
+# VERCEL
+# -------------------------
+.vercel/
+.vercelignore
+
+# -------------------------
+# MISC
+# -------------------------
+yarn-error.log
