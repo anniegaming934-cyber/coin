@@ -2,14 +2,13 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FC } from "react";
 import { apiClient } from "../apiConfig";
-import GameRow from "./Gamerow";
+import GameRow from "./Gamerow"; // used ONLY for the modal when editing
 import AddGameForm from "./Addgame";
 import PaymentForm, { type PaymentFormProps } from "../user/Paymentform";
 import PaymentHistory from "../user/PaymentHistory";
 import Sidebar, { type SidebarSection } from "./Sidebar";
-import FacebookLeadForm from "../FacebookLeadForm";
 import UserAdminTable from "./UserAdminTable";
-import UserHistory from "./AdminUserHistory"; // ✅ accepts `userId` prop
+import UserHistory from "./AdminUserHistory";
 import AdminUserActivityTable from "./AdminUserActivityTable";
 import { DataTable } from "../DataTable";
 import { ColumnDef } from "@tanstack/react-table";
@@ -22,6 +21,7 @@ import {
   Gamepad,
 } from "lucide-react";
 import SalaryForm from "./SalaryForm";
+import FacebookLeadForm from "../FacebookLeadForm";
 
 interface Game {
   id: number;
@@ -49,8 +49,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
   const [activeSection, setActiveSection] =
     useState<SidebarSection>("overview");
 
-  // 👉 this is the username we pass to UserHistory and backend APIs
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+  const [selectedUsername, setSelectedUsername] = useState<string | null>(null);
 
   const [paymentTotals, setPaymentTotals] = useState({
     cashapp: 0,
@@ -60,13 +59,24 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
 
   const [signinCount, setSigninCount] = useState(0);
 
+  // 🔹 Summary from /api/game-entries/summary
+  const [entrySummary, setEntrySummary] = useState({
+    totalCoin: 0,
+    totalFreeplay: 0,
+    totalDeposit: 0,
+    totalRedeem: 0,
+    totalPendingRemainingPay: 0,
+  });
+
   // ---------------------------
-  // Load games + payment totals + sign-ins
+  // Load games + payment totals + sign-ins + game-entry summary
   // ---------------------------
   useEffect(() => {
     fetchGames();
     fetchTotals();
     fetchSignins();
+    fetchGameEntrySummary();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchGames = async () => {
@@ -115,25 +125,24 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
     }
   };
 
-  // ---------------------------
-  // Aggregated stats (all games)
-  // ---------------------------
-  const totalFreeplay = games.reduce(
-    (sum, g) => sum + (Number(g.coinsEarned) || 0),
-    0
-  );
-  const totalRedeem = games.reduce(
-    (sum, g) => sum + (Number(g.coinsSpent) || 0),
-    0
-  );
-  const totalDeposit = games.reduce(
-    (sum, g) => sum + (Number(g.coinsRecharged) || 0),
-    0
-  );
+  const fetchGameEntrySummary = async () => {
+    try {
+      const { data } = await apiClient.get("/api/game-entries/summary");
+      setEntrySummary({
+        totalCoin: Number(data.totalCoin) || 0,
+        totalFreeplay: Number(data.totalFreeplay) || 0,
+        totalDeposit: Number(data.totalDeposit) || 0,
+        totalRedeem: Number(data.totalRedeem) || 0,
+        totalPendingRemainingPay: Number(data.totalPendingRemainingPay) || 0,
+      });
+    } catch (err) {
+      console.error("Failed to load game entry summary:", err);
+    }
+  };
 
-  // total “coin records” = number of game rows
-  const totalCoinRecords = games.length;
-
+  // ---------------------------
+  // (Games table) stats only used for per-game P&L
+  // ---------------------------
   const totalPaymentsUsd =
     (Number(paymentTotals.cashapp) || 0) +
     (Number(paymentTotals.paypal) || 0) +
@@ -290,7 +299,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
         ),
       },
       {
-        header: "Total coin",
+        header: "Total coin (per game net)",
         id: "totalCoin",
         cell: ({ row }) => {
           const g = row.original;
@@ -363,6 +372,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
         ),
       },
     ];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [games]);
 
   const editingGame = useMemo(
@@ -415,6 +425,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                       fetchGames();
                       fetchTotals();
                       fetchSignins();
+                      fetchGameEntrySummary();
                     }}
                     className="text-xs px-3 py-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
                   >
@@ -431,6 +442,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
+                      {/* Sign-ins */}
                       <tr>
                         <td className="px-4 py-2 text-gray-700">
                           Total Sign-ins ({username})
@@ -440,12 +452,37 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                         </td>
                       </tr>
 
+                      {/* All coin from GameEntry */}
                       <tr>
                         <td className="px-4 py-2 text-gray-700">
-                          Total Coin Records
+                          Total Coin (all Game Entries)
                         </td>
-                        <td className="px-4 py-2 text-right font-semibold">
-                          {totalCoinRecords}
+                        <td className="px-4 py-2 text-right font-semibold text-indigo-600">
+                          {entrySummary.totalCoin.toLocaleString()}{" "}
+                          <span className="ml-1 text-[11px] text-slate-400">
+                            (
+                            {formatCurrency(
+                              entrySummary.totalCoin * COIN_VALUE
+                            )}
+                            )
+                          </span>
+                        </td>
+                      </tr>
+
+                      {/* Coin breakdown from GameEntry */}
+                      <tr>
+                        <td className="px-4 py-2 text-gray-700">
+                          Total Deposit (coins)
+                        </td>
+                        <td className="px-4 py-2 text-right font-semibold text-indigo-600">
+                          {entrySummary.totalDeposit.toLocaleString()}{" "}
+                          <span className="ml-1 text-[11px] text-slate-400">
+                            (
+                            {formatCurrency(
+                              entrySummary.totalDeposit * COIN_VALUE
+                            )}
+                            )
+                          </span>
                         </td>
                       </tr>
 
@@ -454,21 +491,13 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                           Total Freeplay (coins)
                         </td>
                         <td className="px-4 py-2 text-right font-semibold text-emerald-600">
-                          {totalFreeplay.toLocaleString()}{" "}
+                          {entrySummary.totalFreeplay.toLocaleString()}{" "}
                           <span className="ml-1 text-[11px] text-slate-400">
-                            ({formatCurrency(totalFreeplay * COIN_VALUE)})
-                          </span>
-                        </td>
-                      </tr>
-
-                      <tr>
-                        <td className="px-4 py-2 text-gray-700">
-                          Total Deposit (coins)
-                        </td>
-                        <td className="px-4 py-2 text-right font-semibold text-indigo-600">
-                          {totalDeposit.toLocaleString()}{" "}
-                          <span className="ml-1 text-[11px] text-slate-400">
-                            ({formatCurrency(totalDeposit * COIN_VALUE)})
+                            (
+                            {formatCurrency(
+                              entrySummary.totalFreeplay * COIN_VALUE
+                            )}
+                            )
                           </span>
                         </td>
                       </tr>
@@ -478,18 +507,33 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                           Total Redeem (coins)
                         </td>
                         <td className="px-4 py-2 text-right font-semibold text-red-600">
-                          {totalRedeem.toLocaleString()}{" "}
+                          {entrySummary.totalRedeem.toLocaleString()}{" "}
                           <span className="ml-1 text-[11px] text-slate-400">
-                            ({formatCurrency(totalRedeem * COIN_VALUE)})
+                            (
+                            {formatCurrency(
+                              entrySummary.totalRedeem * COIN_VALUE
+                            )}
+                            )
                           </span>
                         </td>
                       </tr>
 
+                      {/* Pending remaining pay */}
+                      <tr>
+                        <td className="px-4 py-2 text-gray-700">
+                          Pending Remaining Pay (player tags)
+                        </td>
+                        <td className="px-4 py-2 text-right font-semibold text-amber-600">
+                          {entrySummary.totalPendingRemainingPay.toFixed(2)}
+                        </td>
+                      </tr>
+
+                      {/* Revenue per method */}
                       <tr>
                         <td className="px-4 py-2 text-gray-700">
                           Revenue from Deposit (CashApp)
                         </td>
-                        <td className="px-4 py-2 text-right font-semibold text-gray-800">
+                        <td className="px-4 py-2 text-right font-semibold">
                           {formatCurrency(Number(paymentTotals.cashapp) || 0)}
                         </td>
                       </tr>
@@ -497,7 +541,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                         <td className="px-4 py-2 text-gray-700">
                           Revenue from Deposit (PayPal)
                         </td>
-                        <td className="px-4 py-2 text-right font-semibold text-gray-800">
+                        <td className="px-4 py-2 text-right font-semibold">
                           {formatCurrency(Number(paymentTotals.paypal) || 0)}
                         </td>
                       </tr>
@@ -505,14 +549,15 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                         <td className="px-4 py-2 text-gray-700">
                           Revenue from Deposit (Chime)
                         </td>
-                        <td className="px-4 py-2 text-right font-semibold text-gray-800">
+                        <td className="px-4 py-2 text-right font-semibold">
                           {formatCurrency(Number(paymentTotals.chime) || 0)}
                         </td>
                       </tr>
 
+                      {/* Total revenue */}
                       <tr>
                         <td className="px-4 py-2 text-gray-700">
-                          Total Payments (USD)
+                          Total Deposit Revenue (USD)
                         </td>
                         <td className="px-4 py-2 text-right font-semibold text-gray-800">
                           {formatCurrency(totalPaymentsUsd)}
@@ -575,7 +620,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
           {activeSection === "UserAdminTable" && (
             <UserAdminTable
               onViewHistory={(usernameForHistory: string) => {
-                setSelectedUserId(usernameForHistory); // ✅ store username here
+                setSelectedUsername(usernameForHistory);
                 setActiveSection("userHistroy");
               }}
             />
@@ -584,14 +629,14 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
           {/* USER HISTORY TAB */}
           {activeSection === "userHistroy" && (
             <>
-              {!selectedUserId && (
+              {!selectedUsername && (
                 <div className="mb-4 text-sm text-gray-600">
                   Please select a user from{" "}
                   <span className="font-semibold">User Admin</span> to view
                   their activity history.
                 </div>
               )}
-              {selectedUserId && <UserHistory userId={selectedUserId} />}
+              {selectedUsername && <UserHistory username={selectedUsername} />}
             </>
           )}
 
@@ -607,7 +652,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
         </main>
       </div>
 
-      {/* Render ONLY the editing modal (via your existing GameRow) */}
+      {/* Editing modal for a single game */}
       {editingGame && (
         <GameRow
           key={editingGame.id}
@@ -623,7 +668,6 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
             _totalCoinsAfter,
             rechargeDateISO
           ) => {
-            // keep spent/earned as 0 (we only edit recharge+date)
             handleUpdate(id, 0, 0, rechargeChange, rechargeDateISO);
           }}
           onCancel={() => setEditingGameId(null)}
