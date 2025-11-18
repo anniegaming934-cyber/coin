@@ -1,14 +1,13 @@
 // src/UserSessionBar.tsx
 import React, { useEffect, useState } from "react";
 import { LogIn, LogOut, Clock } from "lucide-react";
-import { apiClient } from "../apiConfig"; // ✅ shared axios client
+import { apiClient } from "../apiConfig";
 
 interface UserSessionBarProps {
   username: string;
   onLogout: () => void;
 }
 
-// Backend routes (your backend provides these)
 const LOGIN_API_BASE = "/api/logins";
 
 const UserSessionBar: React.FC<UserSessionBarProps> = ({
@@ -21,7 +20,6 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // 👇 NEW: for custom logout confirmation popup
   const [showConfirmLogout, setShowConfirmLogout] = useState(false);
 
   // 🕒 Live clock
@@ -30,20 +28,31 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
     return () => clearInterval(id);
   }, []);
 
-  // 📦 Load saved session
+  // 📦 Load saved session from localStorage
   useEffect(() => {
     const saved = localStorage.getItem("userSession");
-    if (saved) {
-      try {
-        const { id, signInAt, user } = JSON.parse(saved);
-        if (user === username && id && signInAt) {
-          setSessionId(id);
-          setSignInDateTime(new Date(signInAt));
-          setIsSignedIn(true);
-        }
-      } catch {
-        localStorage.removeItem("userSession");
+    if (!saved) return;
+
+    try {
+      const parsed = JSON.parse(saved) as {
+        id?: string;
+        sessionId?: string;
+        signInAt?: string;
+        user?: string;
+      };
+
+      const storedUser = parsed.user;
+      const storedSignInAt = parsed.signInAt;
+      const storedId = parsed.id || parsed.sessionId || null;
+
+      // Only restore if this session belongs to this username
+      if (storedUser === username && storedSignInAt) {
+        setSessionId(storedId);
+        setSignInDateTime(new Date(storedSignInAt));
+        setIsSignedIn(true);
       }
+    } catch {
+      localStorage.removeItem("userSession");
     }
   }, [username]);
 
@@ -88,11 +97,19 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
         signInAt,
       });
 
-      const id = data.id;
-      const sessionData = { id, signInAt, user: username };
+      // 🔑 Support typical Mongo shape: {_id: "..."} OR {id: "..."} OR {sessionId: "..."}
+      const id: string | undefined =
+        data.id || data._id || data.sessionId || data.session_id;
+
+      const sessionData = {
+        id: id || null,
+        sessionId: id || null,
+        signInAt,
+        user: username,
+      };
 
       localStorage.setItem("userSession", JSON.stringify(sessionData));
-      setSessionId(id);
+      setSessionId(id || null);
       setIsSignedIn(true);
       setSignInDateTime(new Date(signInAt));
     } catch (err) {
@@ -103,26 +120,26 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
     }
   };
 
-  // 🔴 OPEN confirm modal instead of direct logout
+  // 🔴 Toggle button click
   const handleClickToggle = () => {
     if (loading) return;
 
     if (isSignedIn) {
-      // show custom popup
+      // show confirm popup
       setShowConfirmLogout(true);
     } else {
-      // sign in directly
       void handleSignIn();
     }
   };
 
-  // ✅ Confirm sign out (called from modal)
+  // ✅ Confirm sign out
   const handleConfirmSignOut = async () => {
     if (loading) return;
 
     try {
       setLoading(true);
 
+      // if we have an id, tell backend to close it; otherwise just do local cleanup
       if (sessionId) {
         await apiClient.post(`${LOGIN_API_BASE}/end`, {
           sessionId,
@@ -144,7 +161,6 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
     }
   };
 
-  // ❌ Cancel sign out (just close modal)
   const handleCancelSignOut = () => {
     if (loading) return;
     setShowConfirmLogout(false);
@@ -227,7 +243,7 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
         </div>
       </div>
 
-      {/* 🔴 CUSTOM LOGOUT CONFIRMATION MODAL */}
+      {/* LOGOUT CONFIRM MODAL */}
       {showConfirmLogout && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
           <div className="bg-white w-full max-w-sm mx-4 rounded-2xl shadow-xl border border-slate-200 p-5">
