@@ -1,6 +1,4 @@
-# -------------------------
-# LOGS
-# -------------------------
+# logs
 logs
 *.log
 npm-debug.log*
@@ -9,36 +7,21 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# -------------------------
-# NODE MODULES
-# -------------------------
+# dependencies
 node_modules/
-api/node_modules/
+api/node_modules/      # ✅ keep this one, only ignore node_modules, not the code
 
-# -------------------------
-# FRONTEND BUILD
-# -------------------------
+# build
 dist/
 dist-ssr/
 .vite/
 
-# -------------------------
-# IGNORE BACKEND (API)
-# -------------------------
-api/
-
-# -------------------------
-# ENV FILES
-# -------------------------
-*.local
+# env
 .env
 .env.local
-.env.*
-!.env.example
+*.local
 
-# -------------------------
-# EDITOR + OS FILES
-# -------------------------
+# editor + OS
 .vscode/
 !.vscode/extensions.json
 .idea/
@@ -49,13 +32,6 @@ api/
 *.sln
 *.sw?
 
-# -------------------------
-# VERCEL
-# -------------------------
+# vercel
 .vercel/
 .vercelignore
-
-# -------------------------
-# MISC
-# -------------------------
-yarn-error.log
