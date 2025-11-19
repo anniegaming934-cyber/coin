@@ -40,6 +40,10 @@ export interface PendingRow {
   createdAt: string;
 }
 
+interface UserCashoutTableProps {
+  username?: string;
+}
+
 const formatDateTime = (iso?: string) => {
   if (!iso) return "-";
   const d = new Date(iso);
@@ -57,7 +61,7 @@ const prettifyMethod = (m: string) => {
   return m;
 };
 
-const UserCashoutTable: FC = () => {
+const UserCashoutTable: FC<UserCashoutTableProps> = ({ username }) => {
   const [rows, setRows] = useState<PendingRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -74,8 +78,14 @@ const UserCashoutTable: FC = () => {
         setError("");
 
         const res = await apiClient.get<ServerPendingEntry[]>(
-          "/api/game-entries/pending"
+          "/api/game-entries/pending",
+          {
+            params: username?.trim()
+              ? { username: username.trim() }
+              : undefined,
+          }
         );
+
         const mapped: PendingRow[] = res.data
           .map((e) => {
             // “who” label: prefer playerName, else playerTag
@@ -120,7 +130,7 @@ const UserCashoutTable: FC = () => {
     };
 
     fetchPending();
-  }, []);
+  }, [username]);
 
   // ✅ Mark as paid → clear pending in backend + remove from list
   const handleMarkPaid = useCallback(async (row: PendingRow) => {

@@ -125,11 +125,10 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
           {activeSection === "overview" && (
             <>
               <div className="grid grid-cols-1 gap-6 mb-8">
-                {/* ⭐ Pass username into GameEntryForm */}
                 <GameEntryForm username={username} />
               </div>
               <div className="grid grid-cols-1 gap-6 mb-8">
-                <UserCashoutTable />
+                <UserCashoutTable username={username} />
               </div>
             </>
           )}
