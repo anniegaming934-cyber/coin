@@ -432,10 +432,10 @@ router.get("/summary", async (_req, res) => {
     let revenueVenmo = 0;
 
     for (const row of depositByMethod) {
-      if (row._id === "cashapp") revenueCashApp = row.totalAmountFinal;
-      if (row._id === "paypal") revenuePayPal = row.totalAmountFinal;
-      if (row._id === "chime") revenueChime = row.totalAmountFinal;
-      if (row._id === "venmo") revenueVenmo = row.totalAmountFinal;
+      if (row._id === "cashapp") revenueCashApp = row.totalAmount;
+      if (row._id === "paypal") revenuePayPal = row.totalAmount;
+      if (row._id === "chime") revenueChime = row.totalAmount;
+      if (row._id === "venmo") revenueVenmo = row.totalAmount;
     }
 
     // -------------------------
