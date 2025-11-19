@@ -5,6 +5,7 @@ import User from "../models/User.js";
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@example.com";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "admin123";
 const ADMIN_NAME = process.env.ADMIN_NAME || "Admin";
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || "admin"; // ⭐ ADDED
 
 export async function ensureAdminUser() {
   try {
@@ -16,8 +17,9 @@ export async function ensureAdminUser() {
 
       user = await User.create({
         name: ADMIN_NAME,
+        username: ADMIN_USERNAME, // ⭐ FIX (this was missing)
         email: normalizedEmail,
-        passwordHash, // 👈 important: field name
+        passwordHash,
         role: "admin",
         isAdmin: true,
       });
@@ -28,30 +30,39 @@ export async function ensureAdminUser() {
 
     let updated = false;
 
-    // Ensure admin role flags
+    // ⭐ FIX: ensure username exists even for old admin
+    if (!user.username) {
+      user.username = ADMIN_USERNAME;
+      updated = true;
+      console.log("⚠️ Added missing admin username");
+    }
+
     if (user.role !== "admin") {
       user.role = "admin";
       updated = true;
     }
+
     if (!user.isAdmin) {
       user.isAdmin = true;
       updated = true;
     }
 
-    // 👇 NEW: ensure password matches ADMIN_PASSWORD from env
-    const currentHash = user.passwordHash || "";
-    const samePassword = await bcrypt.compare(ADMIN_PASSWORD, currentHash);
+    const samePassword = await bcrypt.compare(
+      ADMIN_PASSWORD,
+      user.passwordHash || ""
+    );
+
     if (!samePassword) {
       user.passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 10);
       updated = true;
-      console.log("🔑 Admin password updated from env for:", normalizedEmail);
+      console.log("🔑 Updated admin password");
     }
 
     if (updated) {
       await user.save();
-      console.log("✅ Admin user updated:", normalizedEmail);
+      console.log("✅ Admin updated:", normalizedEmail);
     } else {
-      console.log("ℹ️ Admin user already up-to-date:", normalizedEmail);
+      console.log("ℹ️ Admin already valid");
     }
 
     return user;

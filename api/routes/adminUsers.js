@@ -128,5 +128,30 @@ router.get("/", async (req, res) => {
     res.status(500).json({ message: "Failed to fetch users" });
   }
 });
+// DELETE /api/admin/users/:id
+router.delete("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // 1) Find the user
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // 2) Optionally delete related login sessions
+    if (user.username) {
+      await LoginSession.deleteMany({ username: user.username });
+    }
+
+    // 3) Delete the user itself
+    await User.deleteOne({ _id: id });
+
+    return res.json({ message: "User deleted successfully" });
+  } catch (err) {
+    console.error("Error deleting user:", err);
+    return res.status(500).json({ message: "Failed to delete user" });
+  }
+});
 
 export default router;
