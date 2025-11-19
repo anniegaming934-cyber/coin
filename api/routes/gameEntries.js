@@ -138,14 +138,6 @@ router.get("/", async (req, res) => {
 
 /**
  * 🔹 POST /api/game-entries
- * Body: {
- *   username, createdBy,
- *   type, method?,
- *   playerName?, playerTag?, gameName,
- *   amountBase, amount?, bonusRate?, bonusAmount?, amountFinal,
- *   date?, note?,
- *   totalPaid?, totalCashout?, remainingPay?, extraMoney?, reduction?, isPending?
- * }
  */
 router.post("/", async (req, res) => {
   try {
@@ -238,6 +230,176 @@ router.post("/", async (req, res) => {
 });
 
 /**
+ * 🔹 GET /api/game-entries/pending
+ * Returns pending redeems for a specific username
+ */
+router.get("/pending", async (req, res) => {
+  try {
+    const { username } = req.query;
+
+    if (!username || !String(username).trim()) {
+      return res.status(400).json({ message: "username is required" });
+    }
+
+    const cleanUser = String(username).trim();
+
+    const entries = await GameEntry.find(
+      {
+        username: cleanUser,
+        type: "redeem",
+        isPending: true,
+      },
+      // project fields used in the table
+      "username type method playerName playerTag gameName remainingPay totalCashout totalPaid createdAt date"
+    )
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.json(entries);
+  } catch (err) {
+    console.error("❌ GET /api/game-entries/pending error:", err);
+    return res
+      .status(500)
+      .json({ message: "Failed to load pending game entries" });
+  }
+});
+
+/**
+ * 🔹 GET /api/game-entries/pending-by-tag
+ */
+router.get("/pending-by-tag", async (req, res) => {
+  try {
+    const { playerTag, username } = req.query;
+
+    const cleanTag = String(playerTag || "").trim();
+    const cleanUser = String(username || "").trim();
+
+    if (!cleanTag || !cleanUser) {
+      return res
+        .status(400)
+        .json({ message: "playerTag and username are required" });
+    }
+
+    const agg = await GameEntry.aggregate([
+      {
+        $match: {
+          username: cleanUser,
+          playerTag: cleanTag,
+          type: "redeem",
+          isPending: true,
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalCashout: { $sum: { $ifNull: ["$totalCashout", 0] } },
+          totalPaid: { $sum: { $ifNull: ["$totalPaid", 0] } },
+          remainingPay: { $sum: { $ifNull: ["$remainingPay", 0] } },
+        },
+      },
+    ]);
+
+    if (!agg.length) {
+      return res.status(404).json({ message: "No pending for this tag" });
+    }
+
+    const row = agg[0];
+
+    return res.json({
+      playerTag: cleanTag,
+      totalCashout: row.totalCashout || 0,
+      totalPaid: row.totalPaid || 0,
+      remainingPay: row.remainingPay || 0,
+    });
+  } catch (err) {
+    console.error("❌ GET /api/game-entries/pending-by-tag error:", err);
+    return res
+      .status(500)
+      .json({ message: "Failed to load pending info for this tag" });
+  }
+});
+
+/**
+ * 🔹 GET /api/game-entries/summary
+ */
+router.get("/summary", async (_req, res) => {
+  try {
+    const byType = await GameEntry.aggregate([
+      {
+        $group: {
+          _id: "$type",
+          totalAmountFinal: { $sum: "$amountFinal" },
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    let totalFreeplay = 0;
+    let totalDeposit = 0;
+    let totalRedeem = 0;
+
+    for (const row of byType) {
+      if (row._id === "freeplay") totalFreeplay = row.totalAmountFinal || 0;
+      if (row._id === "deposit") totalDeposit = row.totalAmountFinal || 0;
+      if (row._id === "redeem") totalRedeem = row.totalAmountFinal || 0;
+    }
+
+    const totalCoin = totalFreeplay + totalDeposit + totalRedeem;
+
+    const [pendingAgg] = await GameEntry.aggregate([
+      { $match: { isPending: true } },
+      {
+        $group: {
+          _id: null,
+          totalPendingRemainingPay: { $sum: "$remainingPay" },
+        },
+      },
+    ]);
+
+    const [extraAgg] = await GameEntry.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalReduction: { $sum: "$reduction" },
+          totalExtraMoney: { $sum: "$extraMoney" },
+        },
+      },
+    ]);
+
+    res.json({
+      totalCoin,
+      totalFreeplay,
+      totalDeposit,
+      totalRedeem,
+      totalPendingRemainingPay: pendingAgg?.totalPendingRemainingPay || 0,
+      totalReduction: extraAgg?.totalReduction || 0,
+      totalExtraMoney: extraAgg?.totalExtraMoney || 0,
+    });
+  } catch (err) {
+    console.error("❌ GET /api/game-entries/summary error:", err);
+    res.status(500).json({ message: "Failed to load game entry summary" });
+  }
+});
+
+/**
+ * 🔹 GET /api/game-entries/:id/history
+ */
+router.get("/:id/history", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const docs = await GameEntryHistory.find({ entryId: id })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json(docs);
+  } catch (err) {
+    console.error("❌ GET /api/game-entries/:id/history error:", err);
+    res.status(500).json({ message: "Failed to load entry history" });
+  }
+});
+
+/**
  * 🔹 PUT /api/game-entries/:id
  */
 router.put("/:id", async (req, res) => {
@@ -275,7 +437,6 @@ router.put("/:id", async (req, res) => {
       entry.amountFinal = final;
     }
 
-    // Generic assign for simple fields
     const simpleFields = [
       "username",
       "createdBy",
@@ -350,180 +511,6 @@ router.delete("/:id", async (req, res) => {
   } catch (err) {
     console.error("❌ DELETE /api/game-entries/:id error:", err);
     res.status(500).json({ message: "Failed to delete game entry" });
-  }
-});
-
-/**
- * 🔹 GET /api/game-entries/:id/history
- */
-router.get("/:id/history", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const docs = await GameEntryHistory.find({ entryId: id })
-      .sort({ createdAt: -1 })
-      .lean();
-
-    res.json(docs);
-  } catch (err) {
-    console.error("❌ GET /api/game-entries/:id/history error:", err);
-    res.status(500).json({ message: "Failed to load entry history" });
-  }
-});
-
-/**
- * 🔹 GET /api/game-entries/pending
- * Returns all pending redeems for a user (used to build playerTag suggestions)
- */
-router.get("/pending", async (req, res) => {
-  try {
-    const { username } = req.query;
-
-    if (!username || !String(username).trim()) {
-      return res.status(400).json({ message: "username is required" });
-    }
-
-    const cleanUser = String(username).trim();
-
-    const entries = await GameEntry.find(
-      {
-        username: cleanUser,
-        type: "redeem",
-        isPending: true,
-      },
-      "playerTag remainingPay totalCashout totalPaid createdAt"
-    )
-      .sort({ createdAt: -1 })
-      .lean();
-
-    return res.json(entries);
-  } catch (err) {
-    console.error("❌ GET /api/game-entries/pending error:", err);
-    return res
-      .status(500)
-      .json({ message: "Failed to load pending game entries" });
-  }
-});
-
-/**
- * 🔹 GET /api/game-entries/pending-by-tag
- * Returns aggregated pending info for a specific playerTag + username
- */
-router.get("/pending-by-tag", async (req, res) => {
-  try {
-    const { playerTag, username } = req.query;
-
-    const cleanTag = String(playerTag || "").trim();
-    const cleanUser = String(username || "").trim();
-
-    if (!cleanTag || !cleanUser) {
-      return res
-        .status(400)
-        .json({ message: "playerTag and username are required" });
-    }
-
-    const agg = await GameEntry.aggregate([
-      {
-        $match: {
-          username: cleanUser,
-          playerTag: cleanTag,
-          type: "redeem",
-          isPending: true,
-        },
-      },
-      {
-        $group: {
-          _id: null,
-          totalCashout: { $sum: { $ifNull: ["$totalCashout", 0] } },
-          totalPaid: { $sum: { $ifNull: ["$totalPaid", 0] } },
-          remainingPay: { $sum: { $ifNull: ["$remainingPay", 0] } },
-        },
-      },
-    ]);
-
-    if (!agg.length) {
-      return res.status(404).json({ message: "No pending for this tag" });
-    }
-
-    const row = agg[0];
-
-    return res.json({
-      playerTag: cleanTag,
-      totalCashout: row.totalCashout || 0,
-      totalPaid: row.totalPaid || 0,
-      remainingPay: row.remainingPay || 0,
-    });
-  } catch (err) {
-    console.error("❌ GET /api/game-entries/pending-by-tag error:", err);
-    return res
-      .status(500)
-      .json({ message: "Failed to load pending info for this tag" });
-  }
-});
-
-/**
- * 🔹 GET /api/game-entries/summary
- * Returns totals by type + extra info
- */
-router.get("/summary", async (_req, res) => {
-  try {
-    // Group by type (freeplay, deposit, redeem)
-    const byType = await GameEntry.aggregate([
-      {
-        $group: {
-          _id: "$type",
-          totalAmountFinal: { $sum: "$amountFinal" },
-          count: { $sum: 1 },
-        },
-      },
-    ]);
-
-    let totalFreeplay = 0;
-    let totalDeposit = 0;
-    let totalRedeem = 0;
-
-    for (const row of byType) {
-      if (row._id === "freeplay") totalFreeplay = row.totalAmountFinal || 0;
-      if (row._id === "deposit") totalDeposit = row.totalAmountFinal || 0;
-      if (row._id === "redeem") totalRedeem = row.totalAmountFinal || 0;
-    }
-
-    const totalCoin = totalFreeplay + totalDeposit + totalRedeem;
-
-    // Pending remainingPay
-    const [pendingAgg] = await GameEntry.aggregate([
-      { $match: { isPending: true } },
-      {
-        $group: {
-          _id: null,
-          totalPendingRemainingPay: { $sum: "$remainingPay" },
-        },
-      },
-    ]);
-
-    // Reduction + extraMoney
-    const [extraAgg] = await GameEntry.aggregate([
-      {
-        $group: {
-          _id: null,
-          totalReduction: { $sum: "$reduction" },
-          totalExtraMoney: { $sum: "$extraMoney" },
-        },
-      },
-    ]);
-
-    res.json({
-      totalCoin,
-      totalFreeplay,
-      totalDeposit,
-      totalRedeem,
-      totalPendingRemainingPay: pendingAgg?.totalPendingRemainingPay || 0,
-      totalReduction: extraAgg?.totalReduction || 0,
-      totalExtraMoney: extraAgg?.totalExtraMoney || 0,
-    });
-  } catch (err) {
-    console.error("❌ GET /api/game-entries/summary error:", err);
-    res.status(500).json({ message: "Failed to load game entry summary" });
   }
 });
 
