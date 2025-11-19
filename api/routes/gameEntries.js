@@ -6,6 +6,7 @@ import GameEntry, {
   ALLOWED_METHODS,
 } from "../models/GameEntry.js";
 import GameEntryHistory from "../models/GameEntryHistory.js";
+import Game from "../models/Game.js"; // 👈 NEW: to update totalCoins on Game
 
 const router = express.Router();
 
@@ -48,6 +49,35 @@ function normalizeDateString(d) {
 const COIN_AMOUNT_EXPR = {
   $ifNull: ["$amountFinal", { $ifNull: ["$amount", 0] }],
 };
+
+// ⭐ NEW: how much this entry changes totalCoins
+function coinEffect(type, amountFinal) {
+  const amt = Number(amountFinal);
+  if (!Number.isFinite(amt) || amt <= 0) return 0;
+
+  // freeplay + deposit → minus
+  // redeem            → plus
+  if (type === "deposit" || type === "freeplay") return -amt;
+  if (type === "redeem") return amt;
+  return 0;
+}
+
+// ⭐ NEW: apply a delta to Game.totalCoins
+async function applyGameDelta(gameName, delta) {
+  try {
+    const name = String(gameName || "").trim();
+    if (!name) return;
+
+    const game = await Game.findOne({ name });
+    if (!game) return; // silently ignore if no game found
+
+    const current = Number(game.totalCoins || 0);
+    game.totalCoins = current + delta;
+    await game.save();
+  } catch (err) {
+    console.error("⚠️ Failed to update Game.totalCoins:", err);
+  }
+}
 
 // Small helper to record history
 async function recordHistory(entry, action = "update") {
@@ -227,6 +257,12 @@ router.post("/", async (req, res) => {
 
     await recordHistory(doc, "create");
 
+    // ⭐ NEW: Update Game.totalCoins using type and amountFinal
+    const delta = coinEffect(doc.type, doc.amountFinal);
+    if (delta !== 0) {
+      await applyGameDelta(doc.gameName, delta);
+    }
+
     res.status(201).json(doc);
   } catch (err) {
     console.error("❌ POST /api/game-entries error:", err);
@@ -359,7 +395,7 @@ router.get("/pending-by-tag", async (req, res) => {
 router.get("/summary", async (_req, res) => {
   try {
     // -------------------------
-    // 1️⃣ TOTALS BY TYPE
+    // 1️⃣ TOTALS BY TYPE (COIN EXPRESSION)
     // -------------------------
     const byType = await GameEntry.aggregate([
       {
@@ -412,14 +448,15 @@ router.get("/summary", async (_req, res) => {
     ]);
 
     // -------------------------
-    // 4️⃣ REVENUE BY DEPOSIT METHOD
+    // 4️⃣ REVENUE BY DEPOSIT METHOD (amountBase only)
     // -------------------------
     const depositByMethod = await GameEntry.aggregate([
       { $match: { type: "deposit" } },
       {
         $group: {
           _id: "$method",
-          totalAmount: { $sum: COIN_AMOUNT_EXPR },
+          // 💰 use amountBase for revenue
+          totalAmount: { $sum: { $ifNull: ["$amountBase", 0] } },
         },
       },
     ]);
@@ -435,6 +472,10 @@ router.get("/summary", async (_req, res) => {
       if (row._id === "chime") revenueChime = row.totalAmount;
       if (row._id === "venmo") revenueVenmo = row.totalAmount;
     }
+
+    // ✅ total revenue (real money) from all deposit methods (amountBase)
+    const totalRevenue =
+      revenueCashApp + revenuePayPal + revenueChime + revenueVenmo;
 
     // -------------------------
     // 5️⃣ FINAL RESPONSE
@@ -455,30 +496,15 @@ router.get("/summary", async (_req, res) => {
       revenuePayPal,
       revenueChime,
       revenueVenmo,
+      totalRevenue, // 💰 based on amountBase
     });
   } catch (err) {
     console.error("❌ GET /api/game-entries/summary error:", err);
     res.status(500).json({ message: "Failed to load game entry summary" });
   }
 });
-
 /**
  * 🔹 GET /api/game-entries/summary-by-game
- *
- * Optional query:
- *   - username: filter by username (per-user game totals)
- *
- * Response example:
- * [
- *   {
- *     gameName: "pandamaster",
- *     totalFreeplay: 100,
- *     totalDeposit: 250,
- *     totalRedeem: 300,
- *     totalCoins: 300 - (100 + 250)
- *   },
- *   ...
- * ]
  */
 router.get("/summary-by-game", async (req, res) => {
   try {
@@ -567,6 +593,7 @@ router.get("/:id/history", async (req, res) => {
 
 /**
  * 🔹 PUT /api/game-entries/:id
+ * (also keeps Game.totalCoins correct)
  */
 router.put("/:id", async (req, res) => {
   try {
@@ -578,6 +605,11 @@ router.put("/:id", async (req, res) => {
     }
 
     const payload = req.body;
+
+    // snapshot old values for coin delta
+    const oldType = entry.type;
+    const oldAmtFinal = entry.amountFinal;
+    const oldGameName = entry.gameName;
 
     if (payload.type && !ALLOWED_TYPES.includes(payload.type)) {
       return res.status(400).json({ message: "Invalid type" });
@@ -651,6 +683,18 @@ router.put("/:id", async (req, res) => {
     await entry.save();
     await recordHistory(entry, "update");
 
+    // ⭐ NEW: adjust Game.totalCoins for update
+    // 1) remove old effect
+    const oldDelta = coinEffect(oldType, oldAmtFinal);
+    if (oldDelta !== 0) {
+      await applyGameDelta(oldGameName, -oldDelta);
+    }
+    // 2) apply new effect
+    const newDelta = coinEffect(entry.type, entry.amountFinal);
+    if (newDelta !== 0) {
+      await applyGameDelta(entry.gameName, newDelta);
+    }
+
     res.json(entry);
   } catch (err) {
     console.error("❌ PUT /api/game-entries/:id error:", err);
@@ -660,6 +704,7 @@ router.put("/:id", async (req, res) => {
 
 /**
  * 🔹 DELETE /api/game-entries/:id
+ * (also reverses its effect from Game.totalCoins)
  */
 router.delete("/:id", async (req, res) => {
   try {
@@ -668,6 +713,12 @@ router.delete("/:id", async (req, res) => {
     const entry = await GameEntry.findById(id);
     if (!entry) {
       return res.status(404).json({ message: "Game entry not found" });
+    }
+
+    // ⭐ NEW: reverse its effect from totalCoins before delete
+    const delta = coinEffect(entry.type, entry.amountFinal);
+    if (delta !== 0) {
+      await applyGameDelta(entry.gameName, -delta);
     }
 
     await recordHistory(entry, "delete");

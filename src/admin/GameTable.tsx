@@ -15,7 +15,7 @@ export interface GameRowDT {
   name: string;
   coinsRecharged: number; // coins you bought / loaded
   lastRechargeDate?: string;
-  totalCoins?: number; // net coins, from backend
+  totalCoins?: number; // 👈 net coins from backend (profit/loss in coins)
 }
 
 type Handlers = {
@@ -24,6 +24,21 @@ type Handlers = {
   onDelete: (id: number) => void;
   coinValue: number; // 1 coin => how many $
 };
+
+// helper to show "Today / Yesterday / X days ago"
+function formatRelativeDay(dateStr?: string) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return "";
+
+  const now = new Date();
+  const msDiff = now.getTime() - d.getTime();
+  const days = Math.floor(msDiff / (1000 * 60 * 60 * 24));
+
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return `${days} days ago`;
+}
 
 export const makeGameColumns = ({
   onEditStart,
@@ -50,50 +65,64 @@ export const makeGameColumns = ({
     ),
   },
   {
-    header: "Recharge Date",
+    header: "Last Recharged",
     accessorKey: "lastRechargeDate",
-    cell: ({ getValue }) => (
-      <span className="text-xs text-gray-600">{getValue() || "—"}</span>
-    ),
-  },
-
-  // 🔥 TOTAL COIN — use backend totalCoins, fallback to coinsRecharged
-  {
-    header: "Total coin",
-    id: "totalCoin",
     cell: ({ row }) => {
-      const g = row.original;
-
-      // prefer backend totalCoins, fallback to recharged only
-      const total =
-        typeof g.totalCoins === "number" ? g.totalCoins : g.coinsRecharged || 0;
-
-      const cls =
-        total > 0
-          ? "text-green-700"
-          : total < 0
-          ? "text-red-700"
-          : "text-gray-500";
+      const raw = row.original.lastRechargeDate;
+      const pretty = formatRelativeDay(raw);
 
       return (
-        <span className={`font-mono ${cls}`}>{total.toLocaleString()}</span>
+        <div className="flex flex-col text-xs">
+          <span className="text-gray-700">{raw || "—"}</span>
+          {raw && pretty && (
+            <span className="text-gray-400 text-[11px]">{pretty}</span>
+          )}
+        </div>
       );
     },
   },
 
-  // 💰 P&L in money: (net coins − recharged) * value
+  // 🔥 TOTAL COIN (per game net) = coinsRecharged + backend totalCoins
+  {
+    header: "Total coin (per game net)",
+    id: "totalCoin",
+    cell: ({ row }) => {
+      const g = row.original;
+
+      const recharged = g.coinsRecharged || 0;
+      const netFromBackend =
+        typeof g.totalCoins === "number" ? g.totalCoins : 0;
+
+      // 👇 what we show in table
+      const totalForDisplay = recharged + netFromBackend;
+
+      const cls =
+        totalForDisplay > 0
+          ? "text-green-700"
+          : totalForDisplay < 0
+          ? "text-red-700"
+          : "text-gray-500";
+
+      return (
+        <span className={`font-mono ${cls}`}>
+          {totalForDisplay.toLocaleString()}
+        </span>
+      );
+    },
+  },
+
+  // 💰 P&L in money: net (totalCoins from backend) * value
   {
     header: "P&L",
     id: "pnl",
     cell: ({ row }) => {
       const g = row.original;
 
-      const recharged = g.coinsRecharged || 0;
-      const total =
-        typeof g.totalCoins === "number" ? g.totalCoins : g.coinsRecharged || 0;
+      const netFromBackend =
+        typeof g.totalCoins === "number" ? g.totalCoins : 0;
 
-      // profit in coins: net coins minus what you paid to buy them
-      const netProfitCoins = total - recharged;
+      // profit in coins = just the net part
+      const netProfitCoins = netFromBackend;
       const pnl = netProfitCoins * coinValue;
 
       const pos = pnl >= 0;

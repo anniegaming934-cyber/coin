@@ -135,7 +135,7 @@ const GameRow: FC<GameRowProps> = ({
   }, [game.name]);
 
   // Total coins = net from entries according to type rules
-  const totalCoinValue = totalFromEntries;
+  const totalCoinValue = typeof game.totalCoins === "number" ? game.totalCoins : 0;
 
   const pnl = totalCoinValue * coinValue;
   const isProfit = pnl >= 0;

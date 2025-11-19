@@ -99,11 +99,16 @@ router.get("/games", async (req, res) => {
 
       const coinsRecharged = g.coinsRecharged || 0;
 
-      // RULE:
-      // - freeplay  → subtract
-      // - deposit   → subtract
-      // - redeem    → add
-      const totalCoins = coinsRecharged - s.freeplay - s.deposit + s.redeem;
+      // NEW RULE:
+      // If redeem exists → totalCoins = coinsRecharged + redeem
+      // Else             → totalCoins = coinsRecharged - freeplay - deposit
+      let totalCoins;
+
+      if (s.redeem > 0) {
+        totalCoins = coinsRecharged + s.redeem;
+      } else {
+        totalCoins = coinsRecharged - s.freeplay - s.deposit;
+      }
 
       return {
         ...g,
@@ -111,7 +116,7 @@ router.get("/games", async (req, res) => {
         deposit: s.deposit,
         redeem: s.redeem,
         coinsRecharged,
-        totalCoins, // 👈 derived, not from DB
+        totalCoins,
       };
     });
 
