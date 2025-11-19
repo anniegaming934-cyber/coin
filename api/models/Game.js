@@ -8,17 +8,8 @@ const GameSchema = new mongoose.Schema(
 
     name: { type: String, required: true, trim: true },
 
-    // freeplay = subtract from total
-    coinsEarned: { type: Number, default: 0 },
-
-    // redeem = adds to total
-    coinsSpent: { type: Number, default: 0 },
-
-    // deposit = subtracts from total
+    // base coins you recharge for this game
     coinsRecharged: { type: Number, default: 0 },
-
-    // auto-calculated total coins = redeem - freeplay - deposit
-    totalCoins: { type: Number, default: 0 },
 
     // optional recharge timestamp (YYYY-MM-DD)
     lastRechargeDate: { type: String, default: null },
@@ -26,14 +17,7 @@ const GameSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// 🧮 Auto-update totalCoins before saving
-GameSchema.pre("save", function (next) {
-  this.totalCoins =
-    (this.coinsSpent || 0) -
-    (this.coinsEarned || 0) -
-    (this.coinsRecharged || 0);
-  next();
-});
+// ❌ no pre("save") — totalCoins is calculated in routes using GameEntry
 
 const Game = mongoose.models.Game || mongoose.model("Game", GameSchema);
 export default Game;

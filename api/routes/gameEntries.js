@@ -44,6 +44,11 @@ function normalizeDateString(d) {
   return date.toISOString().slice(0, 10);
 }
 
+// For aggregations: prefer amountFinal, then amount, then 0
+const COIN_AMOUNT_EXPR = {
+  $ifNull: ["$amountFinal", { $ifNull: ["$amount", 0] }],
+};
+
 // Small helper to record history
 async function recordHistory(entry, action = "update") {
   try {
@@ -234,11 +239,6 @@ router.post("/", async (req, res) => {
  * Returns pending redeems (optionally filtered by username)
  * Used for: username, time, playerName, game, totalPaid, totalRemaining
  */
-/**
- * 🔹 GET /api/game-entries/pending
- * Returns pending redeems (optionally filtered by username)
- * Used for: username, time, playerName, game, totalPaid, totalRemaining
- */
 router.get("/pending", async (req, res) => {
   try {
     const { username } = req.query;
@@ -354,9 +354,6 @@ router.get("/pending-by-tag", async (req, res) => {
 
 /**
  * 🔹 GET /api/game-entries/summary
- */
-/**
- * 🔹 GET /api/game-entries/summary
  * Global totals + deposit revenue split by payment method
  */
 router.get("/summary", async (_req, res) => {
@@ -368,7 +365,7 @@ router.get("/summary", async (_req, res) => {
       {
         $group: {
           _id: "$type",
-          totalAmountFinal: { $sum: { $ifNull: ["$amountFinal", 0] } },
+          totalAmount: { $sum: COIN_AMOUNT_EXPR },
         },
       },
     ]);
@@ -378,12 +375,14 @@ router.get("/summary", async (_req, res) => {
     let totalRedeem = 0;
 
     for (const t of byType) {
-      if (t._id === "freeplay") totalFreeplay = t.totalAmountFinal;
-      if (t._id === "deposit") totalDeposit = t.totalAmountFinal;
-      if (t._id === "redeem") totalRedeem = t.totalAmountFinal;
+      if (t._id === "freeplay") totalFreeplay = t.totalAmount;
+      if (t._id === "deposit") totalDeposit = t.totalAmount;
+      if (t._id === "redeem") totalRedeem = t.totalAmount;
     }
 
-    const totalCoin = totalFreeplay + totalDeposit + totalRedeem;
+    // ✅ net total coins after freeplay + deposit + redeem
+    //    redeem adds, freeplay & deposit subtract
+    const totalCoin = totalRedeem - (totalFreeplay + totalDeposit);
 
     // -------------------------
     // 2️⃣ TOTAL PENDING
@@ -420,12 +419,11 @@ router.get("/summary", async (_req, res) => {
       {
         $group: {
           _id: "$method",
-          totalAmountFinal: { $sum: { $ifNull: ["$amountFinal", 0] } },
+          totalAmount: { $sum: COIN_AMOUNT_EXPR },
         },
       },
     ]);
 
-    // Start at 0
     let revenueCashApp = 0;
     let revenuePayPal = 0;
     let revenueChime = 0;
@@ -453,7 +451,6 @@ router.get("/summary", async (_req, res) => {
       totalReduction: extraAgg?.totalReduction || 0,
       totalExtraMoney: extraAgg?.totalExtraMoney || 0,
 
-      // 🌟 NEW: Deposit Revenue by Method
       revenueCashApp,
       revenuePayPal,
       revenueChime,
@@ -462,6 +459,91 @@ router.get("/summary", async (_req, res) => {
   } catch (err) {
     console.error("❌ GET /api/game-entries/summary error:", err);
     res.status(500).json({ message: "Failed to load game entry summary" });
+  }
+});
+
+/**
+ * 🔹 GET /api/game-entries/summary-by-game
+ *
+ * Optional query:
+ *   - username: filter by username (per-user game totals)
+ *
+ * Response example:
+ * [
+ *   {
+ *     gameName: "pandamaster",
+ *     totalFreeplay: 100,
+ *     totalDeposit: 250,
+ *     totalRedeem: 300,
+ *     totalCoins: 300 - (100 + 250)
+ *   },
+ *   ...
+ * ]
+ */
+router.get("/summary-by-game", async (req, res) => {
+  try {
+    const { username } = req.query;
+
+    const match = {};
+    if (username && String(username).trim()) {
+      match.username = String(username).trim();
+    }
+
+    const agg = await GameEntry.aggregate([
+      {
+        $match: {
+          ...match,
+          gameName: { $ne: null },
+        },
+      },
+      {
+        $group: {
+          _id: "$gameName",
+          totalFreeplay: {
+            $sum: {
+              $cond: [{ $eq: ["$type", "freeplay"] }, COIN_AMOUNT_EXPR, 0],
+            },
+          },
+          totalDeposit: {
+            $sum: {
+              $cond: [{ $eq: ["$type", "deposit"] }, COIN_AMOUNT_EXPR, 0],
+            },
+          },
+          totalRedeem: {
+            $sum: {
+              $cond: [{ $eq: ["$type", "redeem"] }, COIN_AMOUNT_EXPR, 0],
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          // per-game net coins: redeem − (freeplay + deposit)
+          totalCoins: {
+            $subtract: [
+              "$totalRedeem",
+              { $add: ["$totalFreeplay", "$totalDeposit"] },
+            ],
+          },
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          gameName: "$_id",
+          totalFreeplay: 1,
+          totalDeposit: 1,
+          totalRedeem: 1,
+          totalCoins: 1,
+        },
+      },
+      { $sort: { gameName: 1 } },
+    ]);
+
+    res.json(agg);
+  } catch (err) {
+    console.error("❌ GET /api/game-entries/summary-by-game error:", err);
+    res.status(500).json({ message: "Failed to load per-game entry summary" });
   }
 });
 

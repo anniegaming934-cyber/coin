@@ -2,21 +2,23 @@
 import express from "express";
 import { connectDB } from "../config/db.js";
 import Game from "../models/Game.js";
+import GameEntry from "../models/GameEntry.js"; // ✅ needed for aggregate
 import UserActivity from "../models/UserActivity.js";
 import { safeNum } from "../utils/numbers.js";
 
 const router = express.Router();
 
 /**
- * NOTE:
- * If you mount this router as:
+ * If mounted as:
  *   app.use("/api", gameRoutes)
- * then these routes will be:
- *   GET    /api/games            -> with ?q= returns string[] (names), else Game[]
+ *
+ * Routes:
+ *   GET    /api/games                 -> with ?q= returns string[] (names), else enriched Game[]
  *   POST   /api/games
  *   PUT    /api/games/:id
  *   DELETE /api/games/:id
- *   POST   /api/games/:id/add-moves
+ *   POST   /api/games/:id/add-moves   -> logs UserActivity only
+ *   POST   /api/games/:id/reset-recharge
  */
 
 // GET /api/games  (names suggest when ?q= provided; else full list)
@@ -26,19 +28,94 @@ router.get("/games", async (req, res) => {
 
     const q = (req.query.q || "").toString().trim();
 
-    // If typing query exists -> return distinct names for autocomplete
+    // If searching -> return names only
     if (q) {
       const filter = { name: { $regex: q, $options: "i" } };
       const names = await Game.distinct("name", filter);
       const sorted = names
         .filter((n) => typeof n === "string" && n.trim().length > 0)
         .sort((a, b) => a.localeCompare(b));
-      return res.json(sorted); // string[]
+      return res.json(sorted);
     }
 
-    // No query -> return full game docs for admin tables, etc.
+    // 1) Load all games
     const games = await Game.find({}).sort({ createdAt: 1 }).lean();
-    return res.json(games); // Game[]
+
+    const gameNames = games.map((g) => g.name);
+
+    // 2) Aggregate GameEntry totals for each game
+    const totals = await GameEntry.aggregate([
+      { $match: { gameName: { $in: gameNames } } },
+      {
+        $group: {
+          _id: "$gameName",
+          freeplay: {
+            $sum: {
+              $cond: [
+                { $eq: ["$type", "freeplay"] },
+                { $ifNull: ["$amountFinal", "$amount"] },
+                0,
+              ],
+            },
+          },
+          deposit: {
+            $sum: {
+              $cond: [
+                { $eq: ["$type", "deposit"] },
+                { $ifNull: ["$amountFinal", "$amount"] },
+                0,
+              ],
+            },
+          },
+          redeem: {
+            $sum: {
+              $cond: [
+                { $eq: ["$type", "redeem"] },
+                { $ifNull: ["$amountFinal", "$amount"] },
+                0,
+              ],
+            },
+          },
+        },
+      },
+    ]);
+
+    const totalsByGame = {};
+    for (const t of totals) {
+      totalsByGame[t._id] = {
+        freeplay: t.freeplay || 0,
+        deposit: t.deposit || 0,
+        redeem: t.redeem || 0,
+      };
+    }
+
+    // 3) Merge totals + compute totalCoins
+    const enriched = games.map((g) => {
+      const s = totalsByGame[g.name] || {
+        freeplay: 0,
+        deposit: 0,
+        redeem: 0,
+      };
+
+      const coinsRecharged = g.coinsRecharged || 0;
+
+      // RULE:
+      // - freeplay  → subtract
+      // - deposit   → subtract
+      // - redeem    → add
+      const totalCoins = coinsRecharged - s.freeplay - s.deposit + s.redeem;
+
+      return {
+        ...g,
+        freeplay: s.freeplay,
+        deposit: s.deposit,
+        redeem: s.redeem,
+        coinsRecharged,
+        totalCoins, // 👈 derived, not from DB
+      };
+    });
+
+    res.json(enriched);
   } catch (err) {
     console.error("GET /api/games error:", err);
     res.status(500).json({ message: "Failed to load games" });
@@ -47,12 +124,7 @@ router.get("/games", async (req, res) => {
 
 // POST /api/games  (create new game)
 router.post("/games", async (req, res) => {
-  const {
-    name,
-    coinsSpent = 0,
-    coinsEarned = 0,
-    coinsRecharged = 0,
-  } = req.body;
+  const { name, coinsRecharged = 0, lastRechargeDate = null } = req.body;
 
   if (!name || typeof name !== "string") {
     return res.status(400).json({ message: "Game name is required" });
@@ -72,10 +144,8 @@ router.post("/games", async (req, res) => {
     const newGame = await Game.create({
       id: Date.now(), // numeric id used by frontend
       name,
-      coinsSpent,
-      coinsEarned,
       coinsRecharged,
-      // totalCoins recalculated in GameSchema.pre("save")
+      lastRechargeDate,
     });
 
     res.status(201).json(newGame);
@@ -85,16 +155,10 @@ router.post("/games", async (req, res) => {
   }
 });
 
-// PUT /api/games/:id  (absolute totals update)
+// PUT /api/games/:id  (update recharge & lastRechargeDate)
 router.put("/games/:id", async (req, res) => {
   const { id } = req.params;
-  const {
-    coinsSpent,
-    coinsEarned,
-    coinsRecharged,
-    lastRechargeDate,
-    // totalCoins is recalculated in pre("save")
-  } = req.body;
+  const { coinsRecharged, lastRechargeDate } = req.body;
 
   try {
     await connectDB();
@@ -102,10 +166,9 @@ router.put("/games/:id", async (req, res) => {
     const game = await Game.findOne({ id: Number(id) });
     if (!game) return res.status(404).json({ message: "Game not found" });
 
-    if (typeof coinsSpent === "number") game.coinsSpent = coinsSpent;
-    if (typeof coinsEarned === "number") game.coinsEarned = coinsEarned;
-    if (typeof coinsRecharged === "number")
+    if (typeof coinsRecharged === "number") {
       game.coinsRecharged = coinsRecharged;
+    }
 
     if (lastRechargeDate !== undefined) {
       game.lastRechargeDate = lastRechargeDate;
@@ -137,6 +200,7 @@ router.delete("/games/:id", async (req, res) => {
 });
 
 // POST /api/games/:id/add-moves
+// Now this ONLY logs UserActivity. It no longer mutates Game coin fields.
 router.post("/games/:id/add-moves", async (req, res) => {
   const { id } = req.params;
   const {
@@ -161,21 +225,18 @@ router.post("/games/:id/add-moves", async (req, res) => {
     const redeem = safeNum(redeemDelta);
     const deposit = safeNum(depositDelta);
 
-    // Update cumulative totals
-    game.coinsEarned = safeNum(game.coinsEarned) + freeplay; // freeplay
-    game.coinsSpent = safeNum(game.coinsSpent) + redeem; // redeem
-    game.coinsRecharged = safeNum(game.coinsRecharged) + deposit; // deposit
+    // 🔹 We NO LONGER change any game.coinsXXX here, because
+    // totals are computed from GameEntry + coinsRecharged.
 
-    // Update last recharge date on deposit
+    // Update last recharge date only if there was a deposit
     if (deposit > 0) {
       const now = new Date();
       const yyyy = now.getFullYear();
       const mm = String(now.getMonth() + 1).padStart(2, "0");
       const dd = String(now.getDate()).padStart(2, "0");
       game.lastRechargeDate = `${yyyy}-${mm}-${dd}`;
+      await game.save();
     }
-
-    await game.save();
 
     // Log user activity
     if (freeplay || redeem || deposit) {
@@ -194,21 +255,38 @@ router.post("/games/:id/add-moves", async (req, res) => {
       });
     }
 
-    return res.json(game);
+    return res.json({
+      message: "Moves logged",
+      game,
+    });
   } catch (err) {
     console.error("POST /api/games/:id/add-moves error:", err);
     return res.status(500).json({ message: "Failed to update game moves" });
   }
 });
+
 // POST /api/games/:id/reset-recharge
-router.post("/:id/reset-recharge", async (req, res) => {
+router.post("/games/:id/reset-recharge", async (req, res) => {
   const { id } = req.params;
-  const game = await GameModel.findOneAndUpdate(
-    { id },
-    { $set: { coinsRecharged: 0, lastRechargeDate: null } },
-    { new: true }
-  );
-  res.json(game);
+
+  try {
+    await connectDB();
+
+    const game = await Game.findOneAndUpdate(
+      { id: Number(id) },
+      { $set: { coinsRecharged: 0, lastRechargeDate: null } },
+      { new: true }
+    ).lean();
+
+    if (!game) {
+      return res.status(404).json({ message: "Game not found" });
+    }
+
+    res.json(game);
+  } catch (err) {
+    console.error("POST /api/games/:id/reset-recharge error:", err);
+    res.status(500).json({ message: "Failed to reset game recharge" });
+  }
 });
 
 export default router;

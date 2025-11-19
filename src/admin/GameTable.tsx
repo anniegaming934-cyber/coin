@@ -13,11 +13,9 @@ import { DataTable } from "../DataTable"; // your wrapper
 export interface GameRowDT {
   id: number;
   name: string;
-  coinsSpent: number; // deposit + freeplay
-  coinsEarned: number; // redeem
   coinsRecharged: number; // coins you bought / loaded
   lastRechargeDate?: string;
-  totalCoins?: number; // optional from backend
+  totalCoins?: number; // net coins, from backend
 }
 
 type Handlers = {
@@ -59,26 +57,16 @@ export const makeGameColumns = ({
     ),
   },
 
-  // 🔥 TOTAL COIN — automatic add/subtract based on type rules
+  // 🔥 TOTAL COIN — use backend totalCoins, fallback to coinsRecharged
   {
     header: "Total coin",
     id: "totalCoin",
     cell: ({ row }) => {
       const g = row.original;
 
-      const coinsSpent = g.coinsSpent || 0; // deposit + freeplay → subtract
-      const coinsEarned = g.coinsEarned || 0; // redeem → add
-      const coinsRecharged = g.coinsRecharged || 0; // recharge → add
-
-      // net coins available:
-      //   recharge (+)
-      //   redeem   (+)
-      //   deposit/freeplay (−)
-      const computedTotal = coinsRecharged + coinsEarned - coinsSpent;
-
-      // if backend already sends totalCoins, prefer that; otherwise use computed
+      // prefer backend totalCoins, fallback to recharged only
       const total =
-        typeof g.totalCoins === "number" ? g.totalCoins : computedTotal;
+        typeof g.totalCoins === "number" ? g.totalCoins : g.coinsRecharged || 0;
 
       const cls =
         total > 0
@@ -93,21 +81,19 @@ export const makeGameColumns = ({
     },
   },
 
-  // 💰 P&L in money, consistent with above logic
+  // 💰 P&L in money: (net coins − recharged) * value
   {
     header: "P&L",
     id: "pnl",
     cell: ({ row }) => {
       const g = row.original;
 
-      const coinsSpent = g.coinsSpent || 0; // players pay us
-      const coinsEarned = g.coinsEarned || 0; // we pay players
-      const coinsRecharged = g.coinsRecharged || 0; // our cost
+      const recharged = g.coinsRecharged || 0;
+      const total =
+        typeof g.totalCoins === "number" ? g.totalCoins : g.coinsRecharged || 0;
 
-      // profit in coins:
-      //   income from players: coinsSpent
-      //   costs: redeem (coinsEarned) + recharge (coinsRecharged)
-      const netProfitCoins = coinsSpent - (coinsEarned + coinsRecharged);
+      // profit in coins: net coins minus what you paid to buy them
+      const netProfitCoins = total - recharged;
       const pnl = netProfitCoins * coinValue;
 
       const pos = pnl >= 0;

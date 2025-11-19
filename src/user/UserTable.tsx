@@ -173,7 +173,7 @@ const UserTable: React.FC<UserTableProps> = ({ username }) => {
         header: "TotalPoint",
         id: "totalPoints",
         cell: ({ row }) => {
-          const value = row.original._totalPoints;
+          const value = row.original.totalCoins;
 
           return (
             <span
