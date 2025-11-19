@@ -155,6 +155,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
   // ---------------------------
   // (Games table) stats only used for per-game P&L
   // ---------------------------
+  // If you still want totals from /api/totals somewhere else, keep this:
   const totalPaymentsUsd =
     (Number(paymentTotals.cashapp) || 0) +
     (Number(paymentTotals.paypal) || 0) +
@@ -164,10 +165,9 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
   const cashappDepositUsd = entrySummary.cashappDeposit * COIN_VALUE;
   const paypalDepositUsd = entrySummary.paypalDeposit * COIN_VALUE;
   const chimeDepositUsd = entrySummary.chimeDeposit * COIN_VALUE;
+  const venmoDepositUsd = entrySummary.venmoDeposit * COIN_VALUE;
 
-  // You can choose either:
-  // - sum of methods, OR
-  // - totalDeposit * COIN_VALUE
+  // 🔹 Total deposit revenue from GameEntry
   const totalDepositRevenueUsd = entrySummary.totalDeposit * COIN_VALUE;
 
   // ---------------------------
@@ -550,7 +550,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                         </td>
                       </tr>
 
-                      {/* Revenue per method from GameEntry deposits */}
+                      {/* Per-method deposit revenue (from GameEntry) */}
                       <tr>
                         <td className="px-4 py-2 text-gray-700">
                           Revenue from Deposit (CashApp)
@@ -573,6 +573,14 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                         </td>
                         <td className="px-4 py-2 text-right font-semibold">
                           {formatCurrency(chimeDepositUsd)}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td className="px-4 py-2 text-gray-700">
+                          Revenue from Deposit (Venmo)
+                        </td>
+                        <td className="px-4 py-2 text-right font-semibold">
+                          {formatCurrency(venmoDepositUsd)}
                         </td>
                       </tr>
 

@@ -226,30 +226,28 @@ const UserHistory: FC<UserHistoryProps> = ({ username }) => {
     );
   }, [filteredEntries]);
 
-  const totalCoinsUsed = useMemo(
-    () => filteredEntries.reduce((sum, e) => sum + getEntryAmount(e), 0),
-    [filteredEntries]
-  );
-
   // 🔹 Summary totals computed from filtered entries (respects date range)
-  const { totalDeposit, totalRedeem, totalFreeplay } = useMemo(() => {
-    let deposit = 0;
-    let redeem = 0;
-    let freeplay = 0;
+  //    Total Points Used = deposit + freeplay
+  const { totalDeposit, totalRedeem, totalFreeplay, totalPointsUsed } =
+    useMemo(() => {
+      let deposit = 0;
+      let redeem = 0;
+      let freeplay = 0;
 
-    filteredEntries.forEach((e) => {
-      const amt = getEntryAmount(e);
-      if (e.type === "deposit") deposit += amt;
-      if (e.type === "redeem") redeem += amt;
-      if (e.type === "freeplay") freeplay += amt;
-    });
+      filteredEntries.forEach((e) => {
+        const amt = getEntryAmount(e);
+        if (e.type === "deposit") deposit += amt;
+        if (e.type === "redeem") redeem += amt;
+        if (e.type === "freeplay") freeplay += amt;
+      });
 
-    return {
-      totalDeposit: deposit,
-      totalRedeem: redeem,
-      totalFreeplay: freeplay,
-    };
-  }, [filteredEntries]);
+      return {
+        totalDeposit: deposit,
+        totalRedeem: redeem,
+        totalFreeplay: freeplay,
+        totalPointsUsed: deposit + freeplay, // ✅ deposit + freeplay only
+      };
+    }, [filteredEntries]);
 
   const totalSessions = filteredSessions.length;
 
@@ -479,7 +477,7 @@ const UserHistory: FC<UserHistoryProps> = ({ username }) => {
         <div className="p-3 border rounded-md">
           <div className="text-xs text-gray-500">Total Points Used</div>
           <div className="text-lg font-semibold">
-            {fmtAmount(totalCoinsUsed)}
+            {fmtAmount(Math.abs(totalPointsUsed))}
           </div>
         </div>
         <div className="p-3 border rounded-md">
