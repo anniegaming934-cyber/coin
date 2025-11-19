@@ -52,7 +52,6 @@ const UserTable: React.FC<UserTableProps> = ({ username }) => {
       const [gamesRes, entriesRes] = await Promise.all([
         apiClient.get(GAMES_API),
         apiClient.get(GAME_ENTRIES_API, {
-          // 👇 send filter only if we actually have a username
           params: username ? { username: username } : {},
         }),
       ]);
@@ -114,12 +113,12 @@ const UserTable: React.FC<UserTableProps> = ({ username }) => {
       };
 
       const baseTotal = safeNumber((g as any).totalCoins);
-      const adjustedTotal = [
-        baseTotal,
-        -s.freeplay,
-        -s.deposit,
-        s.redeem,
-      ].reduce((sum, val) => sum + val, 0);
+
+      // total coin / total point:
+      // - freeplay  → subtract
+      // - deposit   → subtract
+      // - redeem    → add
+      const adjustedTotal = baseTotal - s.freeplay - s.deposit + s.redeem;
 
       return {
         ...g,
@@ -174,14 +173,15 @@ const UserTable: React.FC<UserTableProps> = ({ username }) => {
         header: "TotalPoint",
         id: "totalPoints",
         cell: ({ row }) => {
-          const n = Math.abs(row.original._totalPoints);
+          const value = row.original._totalPoints;
+
           return (
             <span
               className={`font-semibold ${
-                n >= 0 ? "text-emerald-600" : "text-red-600"
+                value >= 0 ? "text-emerald-600" : "text-red-600"
               }`}
             >
-              {n.toLocaleString()}
+              {value.toLocaleString()}
             </span>
           );
         },
