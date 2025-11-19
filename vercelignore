@@ -1,5 +1,6 @@
 api/
-db.json
-*.log
-*.env
 node_modules/
+.env
+.env.local
+.vscode/
+yarn-error.log
