@@ -172,7 +172,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
   const venmoDepositUsd = entrySummary.revenueVenmo // ✅
 
   // 🔹 Total deposit revenue from GameEntry (all methods)
-  const totalDepositRevenueUsd = entrySummary.totalDeposit * COIN_VALUE;
+  const totalDepositRevenueUsd = entrySummary.totalDeposit;
 
   // ---------------------------
   // Game mutations (from GameRow modal)
