@@ -166,26 +166,6 @@ const UserTable: React.FC<UserTableProps> = ({ username }) => {
       },
 
       {
-        header: "Total CashIn",
-        id: "cashin",
-        cell: ({ row }) => (
-          <span className="text-blue-600 font-semibold">
-            {row.original._session.cashin.toLocaleString()}
-          </span>
-        ),
-      },
-
-      {
-        header: "Total CashOut",
-        id: "cashout",
-        cell: ({ row }) => (
-          <span className="text-purple-600 font-semibold">
-            {row.original._session.cashout.toLocaleString()}
-          </span>
-        ),
-      },
-
-      {
         header: "TotalPoint",
         id: "totalPoints",
         cell: ({ row }) => {
