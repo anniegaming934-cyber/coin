@@ -66,6 +66,12 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
     totalDeposit: 0,
     totalRedeem: 0,
     totalPendingRemainingPay: 0,
+    totalReduction: 0,
+    totalExtraMoney: 0,
+    cashappDeposit: 0,
+    paypalDeposit: 0,
+    chimeDeposit: 0,
+    venmoDeposit: 0,
   });
 
   // ---------------------------
@@ -134,6 +140,12 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
         totalDeposit: Number(data.totalDeposit) || 0,
         totalRedeem: Number(data.totalRedeem) || 0,
         totalPendingRemainingPay: Number(data.totalPendingRemainingPay) || 0,
+        totalReduction: Number(data.totalReduction) || 0,
+        totalExtraMoney: Number(data.totalExtraMoney) || 0,
+        cashappDeposit: Number(data.cashappDeposit) || 0,
+        paypalDeposit: Number(data.paypalDeposit) || 0,
+        chimeDeposit: Number(data.chimeDeposit) || 0,
+        venmoDeposit: Number(data.venmoDeposit) || 0,
       });
     } catch (err) {
       console.error("Failed to load game entry summary:", err);
@@ -147,6 +159,16 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
     (Number(paymentTotals.cashapp) || 0) +
     (Number(paymentTotals.paypal) || 0) +
     (Number(paymentTotals.chime) || 0);
+
+  // 🔹 Revenue (USD) from GameEntry deposits per method
+  const cashappDepositUsd = entrySummary.cashappDeposit * COIN_VALUE;
+  const paypalDepositUsd = entrySummary.paypalDeposit * COIN_VALUE;
+  const chimeDepositUsd = entrySummary.chimeDeposit * COIN_VALUE;
+
+  // You can choose either:
+  // - sum of methods, OR
+  // - totalDeposit * COIN_VALUE
+  const totalDepositRevenueUsd = entrySummary.totalDeposit * COIN_VALUE;
 
   // ---------------------------
   // Game mutations (from GameRow modal)
@@ -528,13 +550,13 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                         </td>
                       </tr>
 
-                      {/* Revenue per method */}
+                      {/* Revenue per method from GameEntry deposits */}
                       <tr>
                         <td className="px-4 py-2 text-gray-700">
                           Revenue from Deposit (CashApp)
                         </td>
                         <td className="px-4 py-2 text-right font-semibold">
-                          {formatCurrency(Number(paymentTotals.cashapp) || 0)}
+                          {formatCurrency(cashappDepositUsd)}
                         </td>
                       </tr>
                       <tr>
@@ -542,7 +564,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                           Revenue from Deposit (PayPal)
                         </td>
                         <td className="px-4 py-2 text-right font-semibold">
-                          {formatCurrency(Number(paymentTotals.paypal) || 0)}
+                          {formatCurrency(paypalDepositUsd)}
                         </td>
                       </tr>
                       <tr>
@@ -550,19 +572,19 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                           Revenue from Deposit (Chime)
                         </td>
                         <td className="px-4 py-2 text-right font-semibold">
-                          {formatCurrency(Number(paymentTotals.chime) || 0)}
+                          {formatCurrency(chimeDepositUsd)}
                         </td>
                       </tr>
 
-                      {/* Total revenue */}
+                      {/* Total revenue from deposits */}
                       <tr>
                         <td className="px-4 py-2 text-gray-700">
                           Total Deposit Revenue (USD)
                         </td>
                         <td className="px-4 py-2 text-right font-semibold text-gray-800">
-                          {formatCurrency(totalPaymentsUsd)}
+                          {formatCurrency(totalDepositRevenueUsd)}
                           <span className="ml-1 text-[11px] text-slate-400">
-                            (CashApp + PayPal + Chime)
+                            (from Game Entries)
                           </span>
                         </td>
                       </tr>

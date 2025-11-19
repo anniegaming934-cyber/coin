@@ -189,7 +189,7 @@ const UserTable: React.FC<UserTableProps> = ({ username }) => {
         header: "TotalPoint",
         id: "totalPoints",
         cell: ({ row }) => {
-          const n = row.original._totalPoints;
+          const n = Math.abs(row.original._totalPoints);
           return (
             <span
               className={`font-semibold ${
