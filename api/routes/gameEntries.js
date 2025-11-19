@@ -231,31 +231,64 @@ router.post("/", async (req, res) => {
 
 /**
  * 🔹 GET /api/game-entries/pending
- * Returns pending redeems for a specific username
+ * Returns pending redeems (optionally filtered by username)
+ * Used for: username, time, playerName, game, totalPaid, totalRemaining
+ */
+/**
+ * 🔹 GET /api/game-entries/pending
+ * Returns pending redeems (optionally filtered by username)
+ * Used for: username, time, playerName, game, totalPaid, totalRemaining
  */
 router.get("/pending", async (req, res) => {
   try {
     const { username } = req.query;
 
-    if (!username || !String(username).trim()) {
-      return res.status(400).json({ message: "username is required" });
+    // base filter: only pending redeems
+    const filter = {
+      type: "redeem",
+      isPending: true,
+    };
+
+    // optional username filter
+    if (username && String(username).trim()) {
+      filter.username = String(username).trim();
     }
 
-    const cleanUser = String(username).trim();
+    const entries = await GameEntry.find(filter).sort({ createdAt: -1 }).lean();
 
-    const entries = await GameEntry.find(
-      {
-        username: cleanUser,
-        type: "redeem",
-        isPending: true,
-      },
-      // project fields used in the table
-      "username type method playerName playerTag gameName remainingPay totalCashout totalPaid createdAt date"
-    )
-      .sort({ createdAt: -1 })
-      .lean();
+    const result = entries.map((e) => {
+      const totalPaid = toNumber(e.totalPaid ?? 0, 0);
+      const totalCashout = toNumber(e.totalCashout ?? e.amountFinal ?? 0, 0);
+      const remainingPay = toNumber(
+        e.remainingPay ?? totalCashout - totalPaid,
+        0
+      );
 
-    return res.json(entries);
+      return {
+        _id: String(e._id),
+        username: e.username,
+
+        // 👇 now clearly separated
+        playerName: e.playerName || "",
+        playerTag: e.playerTag || "",
+
+        gameName: e.gameName,
+        method: e.method || "",
+        totalPaid,
+        totalCashout,
+        remainingPay,
+        date:
+          e.date ||
+          (e.createdAt
+            ? new Date(e.createdAt).toISOString().slice(0, 10)
+            : undefined),
+        createdAt: e.createdAt
+          ? new Date(e.createdAt).toISOString()
+          : undefined,
+      };
+    });
+
+    return res.json(result);
   } catch (err) {
     console.error("❌ GET /api/game-entries/pending error:", err);
     return res
@@ -322,14 +355,20 @@ router.get("/pending-by-tag", async (req, res) => {
 /**
  * 🔹 GET /api/game-entries/summary
  */
+/**
+ * 🔹 GET /api/game-entries/summary
+ * Global totals + deposit revenue split by payment method
+ */
 router.get("/summary", async (_req, res) => {
   try {
+    // -------------------------
+    // 1️⃣ TOTALS BY TYPE
+    // -------------------------
     const byType = await GameEntry.aggregate([
       {
         $group: {
           _id: "$type",
-          totalAmountFinal: { $sum: "$amountFinal" },
-          count: { $sum: 1 },
+          totalAmountFinal: { $sum: { $ifNull: ["$amountFinal", 0] } },
         },
       },
     ]);
@@ -338,42 +377,87 @@ router.get("/summary", async (_req, res) => {
     let totalDeposit = 0;
     let totalRedeem = 0;
 
-    for (const row of byType) {
-      if (row._id === "freeplay") totalFreeplay = row.totalAmountFinal || 0;
-      if (row._id === "deposit") totalDeposit = row.totalAmountFinal || 0;
-      if (row._id === "redeem") totalRedeem = row.totalAmountFinal || 0;
+    for (const t of byType) {
+      if (t._id === "freeplay") totalFreeplay = t.totalAmountFinal;
+      if (t._id === "deposit") totalDeposit = t.totalAmountFinal;
+      if (t._id === "redeem") totalRedeem = t.totalAmountFinal;
     }
 
     const totalCoin = totalFreeplay + totalDeposit + totalRedeem;
 
+    // -------------------------
+    // 2️⃣ TOTAL PENDING
+    // -------------------------
     const [pendingAgg] = await GameEntry.aggregate([
       { $match: { isPending: true } },
       {
         $group: {
           _id: null,
-          totalPendingRemainingPay: { $sum: "$remainingPay" },
+          totalPendingRemainingPay: { $sum: { $ifNull: ["$remainingPay", 0] } },
+          totalPendingCount: { $sum: 1 },
         },
       },
     ]);
 
+    // -------------------------
+    // 3️⃣ REDUCTION + EXTRA MONEY
+    // -------------------------
     const [extraAgg] = await GameEntry.aggregate([
       {
         $group: {
           _id: null,
-          totalReduction: { $sum: "$reduction" },
-          totalExtraMoney: { $sum: "$extraMoney" },
+          totalReduction: { $sum: { $ifNull: ["$reduction", 0] } },
+          totalExtraMoney: { $sum: { $ifNull: ["$extraMoney", 0] } },
         },
       },
     ]);
 
+    // -------------------------
+    // 4️⃣ REVENUE BY DEPOSIT METHOD
+    // -------------------------
+    const depositByMethod = await GameEntry.aggregate([
+      { $match: { type: "deposit" } },
+      {
+        $group: {
+          _id: "$method",
+          totalAmountFinal: { $sum: { $ifNull: ["$amountFinal", 0] } },
+        },
+      },
+    ]);
+
+    // Start at 0
+    let revenueCashApp = 0;
+    let revenuePayPal = 0;
+    let revenueChime = 0;
+    let revenueVenmo = 0;
+
+    for (const row of depositByMethod) {
+      if (row._id === "cashapp") revenueCashApp = row.totalAmountFinal;
+      if (row._id === "paypal") revenuePayPal = row.totalAmountFinal;
+      if (row._id === "chime") revenueChime = row.totalAmountFinal;
+      if (row._id === "venmo") revenueVenmo = row.totalAmountFinal;
+    }
+
+    // -------------------------
+    // 5️⃣ FINAL RESPONSE
+    // -------------------------
     res.json({
-      totalCoin,
       totalFreeplay,
       totalDeposit,
       totalRedeem,
+      totalCoin,
+
       totalPendingRemainingPay: pendingAgg?.totalPendingRemainingPay || 0,
+      totalPendingCount: pendingAgg?.totalPendingCount || 0,
+
       totalReduction: extraAgg?.totalReduction || 0,
       totalExtraMoney: extraAgg?.totalExtraMoney || 0,
+
+      // 🌟 NEW: Deposit Revenue by Method
+      revenueCashApp,
+      revenuePayPal,
+      revenueChime,
+      revenueVenmo,
     });
   } catch (err) {
     console.error("❌ GET /api/game-entries/summary error:", err);
