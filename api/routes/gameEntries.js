@@ -421,6 +421,35 @@ router.get("/summary", async (_req, res) => {
       },
     ]);
 
+    // 🔹 Deposit totals by method (cashapp, paypal, chime, etc.)
+    const depositByMethod = await GameEntry.aggregate([
+      { $match: { type: "deposit" } },
+      {
+        $group: {
+          _id: "$method",
+          totalAmountFinal: { $sum: "$amountFinal" },
+        },
+      },
+    ]);
+
+    let cashappDeposit = 0;
+    let paypalDeposit = 0;
+    let chimeDeposit = 0;
+    let venmoDeposit = 0;
+
+    for (const row of depositByMethod) {
+      if (row._id === "cashapp") cashappDeposit = row.totalAmountFinal || 0;
+      if (row._id === "paypal") paypalDeposit = row.totalAmountFinal || 0;
+      if (row._id === "chime") chimeDeposit = row.totalAmountFinal || 0;
+      if (row._id === "venmo") venmoDeposit = row.totalAmountFinal || 0;
+    }
+
+    // Optionally, also keep a generic object if you add more methods later:
+    const depositByMethodMap = depositByMethod.reduce((acc, row) => {
+      acc[row._id || "unknown"] = row.totalAmountFinal || 0;
+      return acc;
+    }, {});
+
     res.json({
       totalCoin,
       totalFreeplay,
@@ -429,6 +458,13 @@ router.get("/summary", async (_req, res) => {
       totalPendingRemainingPay: pendingAgg?.totalPendingRemainingPay || 0,
       totalReduction: extraAgg?.totalReduction || 0,
       totalExtraMoney: extraAgg?.totalExtraMoney || 0,
+
+      // 🔹 New fields
+      cashappDeposit,
+      paypalDeposit,
+      chimeDeposit,
+      venmoDeposit,
+      depositByMethod: depositByMethodMap,
     });
   } catch (err) {
     console.error("❌ GET /api/game-entries/summary error:", err);

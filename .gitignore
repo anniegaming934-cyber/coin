@@ -1,4 +1,4 @@
-# logs
+# Logs
 logs
 *.log
 npm-debug.log*
@@ -7,24 +7,15 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# dependencies
-node_modules/
-api/node_modules/      # ✅ keep this one, only ignore node_modules, not the code
-
-# build
-dist/
-dist-ssr/
-.vite/
-
-# env
-.env
-.env.local
+node_modules
+dist
+dist-ssr
 *.local
 
-# editor + OS
-.vscode/
+# Editor directories and files
+.vscode/*
 !.vscode/extensions.json
-.idea/
+.idea
 .DS_Store
 *.suo
 *.ntvs*
@@ -32,6 +23,4 @@ dist-ssr/
 *.sln
 *.sw?
 
-# vercel
-.vercel/
-.vercelignore
+.vercel

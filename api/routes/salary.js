@@ -102,6 +102,7 @@ router.post("/", async (req, res) => {
         month: String(month).trim(),
         totalSalary: total,
         daysAbsent: absDays,
+        paidSalary: paid,      // ✅ store paidSalary
         remainingSalary: remaining,
         dueDate: dueDate ?? "",
         note: note ?? "",
@@ -139,6 +140,7 @@ router.put("/:id", async (req, res) => {
     // Start from existing values
     let newTotal = doc.totalSalary;
     let newDaysAbsent = doc.daysAbsent;
+    let newPaid = doc.paidSalary ?? 0;
 
     if (totalSalary !== undefined) {
       const total = toNumber(totalSalary, NaN);
@@ -158,6 +160,15 @@ router.put("/:id", async (req, res) => {
       doc.daysAbsent = absDays;
     }
 
+    if (paidSalary !== undefined) {
+      const paid = toNumber(paidSalary, NaN);
+      if (!Number.isFinite(paid) || paid < 0) {
+        return res.status(400).json({ message: "Invalid paidSalary" });
+      }
+      newPaid = paid;
+      doc.paidSalary = paid; // ✅ persist
+    }
+
     // Decide remainingSalary
     if (remainingSalary !== undefined) {
       // Frontend gave us final remainingSalary → trust it
@@ -166,15 +177,10 @@ router.put("/:id", async (req, res) => {
         return res.status(400).json({ message: "Invalid remainingSalary" });
       }
       doc.remainingSalary = rem;
-    } else if (paidSalary !== undefined) {
-      // If frontend sends paidSalary on edit, recalc based on current total & daysAbsent
-      const paid = toNumber(paidSalary, NaN);
-      if (!Number.isFinite(paid) || paid < 0) {
-        return res.status(400).json({ message: "Invalid paidSalary" });
-      }
-
+    } else if (paidSalary !== undefined || totalSalary !== undefined || daysAbsent !== undefined) {
+      // If we changed any of these, recompute remaining
       const netSalary = Math.max(0, newTotal - newDaysAbsent * PER_ABSENT);
-      let rem = netSalary - paid;
+      let rem = netSalary - newPaid;
       if (rem < 0) rem = 0;
       doc.remainingSalary = rem;
     }
@@ -198,7 +204,6 @@ router.put("/:id", async (req, res) => {
 /**
  * 🔹 PATCH /api/salaries/:id/clear-due
  * Sets remainingSalary = 0 for that record.
- * Frontend expects the updated SalaryRow as the response body.
  */
 router.patch("/:id/clear-due", async (req, res) => {
   try {
@@ -209,11 +214,10 @@ router.patch("/:id/clear-due", async (req, res) => {
       return res.status(404).json({ message: "Salary row not found" });
     }
 
-    // 👉 just clear the remaining due
     doc.remainingSalary = 0;
 
     const updated = await doc.save();
-    res.json(updated); // 👈 matches SalaryTable expectation
+    res.json(updated);
   } catch (err) {
     console.error("❌ PATCH /api/salaries/:id/clear-due error:", err);
     res.status(500).json({ message: "Failed to clear due" });

@@ -1,11 +1,12 @@
-// src/components/UserHistory.tsx
+// src/components/AdminUserHistory.tsx  (or UserHistory.tsx depending on your path)
 import React, { useEffect, useMemo, useState, type FC } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { apiClient } from "../apiConfig";
 import { DataTable } from "../DataTable";
 
 export interface UserHistoryProps {
-  userId: string | null; // coming from AdminDashboard selectedUserId
+  // This is actually the username passed from AdminDashboard
+  username: string | null;
 }
 
 interface LoginSessionRow {
@@ -29,13 +30,6 @@ interface GameEntryRow {
   date?: string;
   createdAt?: string;
   note?: string;
-}
-
-interface GameSummaryResponse {
-  username: string;
-  totalDeposit: number;
-  totalRedeem: number;
-  totalFreeplay: number;
 }
 
 interface SalaryRow {
@@ -87,53 +81,71 @@ const getDurationMinutes = (s: LoginSessionRow): number | null => {
   return (end - start) / (1000 * 60);
 };
 
-const UserHistory: FC<UserHistoryProps> = ({ userId }) => {
+// helper for date range filter
+const inDateRange = (
+  iso: string | undefined | null,
+  fromDate: string,
+  toDate: string
+) => {
+  if (!fromDate && !toDate) return true;
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return false;
+
+  if (fromDate) {
+    const fromT = new Date(fromDate + "T00:00:00").getTime();
+    if (t < fromT) return false;
+  }
+  if (toDate) {
+    const toT = new Date(toDate + "T23:59:59").getTime();
+    if (t > toT) return false;
+  }
+  return true;
+};
+
+const UserHistory: FC<UserHistoryProps> = ({ username }) => {
   const [sessions, setSessions] = useState<LoginSessionRow[]>([]);
   const [entries, setEntries] = useState<GameEntryRow[]>([]);
-  const [summary, setSummary] = useState<GameSummaryResponse | null>(null);
   const [salaries, setSalaries] = useState<SalaryRow[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // Date filters (applies to sessions + game entries + summary, NOT salary)
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+
   useEffect(() => {
     const loadAll = async () => {
-      if (!userId) {
+      if (!username) {
         setSessions([]);
         setEntries([]);
-        setSummary(null);
         setSalaries([]);
         return;
       }
 
       setLoading(true);
       try {
-        console.log("🔍 Loading user overview for:", userId);
+        console.log("🔍 Loading user overview for:", username);
 
-        const [sessionsRes, summaryRes, entriesRes, salaryRes] =
-          await Promise.all([
-            apiClient.get<LoginSessionRow[]>("/api/logins", {
-              params: { username: userId },
-            }),
-            apiClient.get<GameSummaryResponse>("/api/game-entries/summary", {
-              params: { username: userId },
-            }),
-            apiClient.get<GameEntryRow[]>("/api/game-entries", {
-              params: { username: userId, limit: 500 },
-            }),
-            apiClient
-              .get<SalaryRow[]>("/api/salaries", {
-                params: { username: userId },
-              })
-              .catch(() => ({ data: [] as SalaryRow[] })),
-          ]);
+        const [sessionsRes, entriesRes, salaryRes] = await Promise.all([
+          apiClient.get<LoginSessionRow[]>("/api/logins", {
+            params: { username },
+          }),
+          apiClient.get<GameEntryRow[]>("/api/game-entries", {
+            params: { username, limit: 500 },
+          }),
+          apiClient
+            .get<SalaryRow[]>("/api/salaries", {
+              params: { username },
+            })
+            .catch(() => ({ data: [] as SalaryRow[] })),
+        ]);
 
         setSessions(Array.isArray(sessionsRes.data) ? sessionsRes.data : []);
-        setSummary(summaryRes.data || null);
         setEntries(Array.isArray(entriesRes.data) ? entriesRes.data : []);
         setSalaries(Array.isArray(salaryRes.data) ? salaryRes.data : []);
       } catch (err) {
         console.error("Failed to load user overview:", err);
         setSessions([]);
-        setSummary(null);
         setEntries([]);
         setSalaries([]);
       } finally {
@@ -142,8 +154,37 @@ const UserHistory: FC<UserHistoryProps> = ({ userId }) => {
     };
 
     loadAll();
-  }, [userId]);
+  }, [username]);
 
+  // 🔹 Filter by username + date range for sessions
+  const filteredSessions = useMemo(() => {
+    return sessions
+      .filter((s) => !username || s.username === username)
+      .sort((a, b) => {
+        const ta = a.signInAt ? new Date(a.signInAt).getTime() : 0;
+        const tb = b.signInAt ? new Date(b.signInAt).getTime() : 0;
+        return tb - ta;
+      })
+      .filter((s) => inDateRange(s.signInAt, fromDate, toDate));
+  }, [sessions, username, fromDate, toDate]);
+
+  // 🔹 Filter by username + date range for game entries
+  const filteredEntries = useMemo(() => {
+    return entries
+      .filter((e) => !username || e.username === username)
+      .sort((a, b) => {
+        const da = a.createdAt || a.date;
+        const db = b.createdAt || b.date;
+        const ta = da ? new Date(da).getTime() : 0;
+        const tb = db ? new Date(db).getTime() : 0;
+        return tb - ta;
+      })
+      .filter((e) =>
+        inDateRange(e.createdAt || e.date || null, fromDate, toDate)
+      );
+  }, [entries, username, fromDate, toDate]);
+
+  // 🔹 Game stats based on filtered entries
   const gameStats = useMemo(() => {
     const perGame: Record<
       string,
@@ -157,7 +198,7 @@ const UserHistory: FC<UserHistoryProps> = ({ userId }) => {
       }
     > = {};
 
-    entries.forEach((e) => {
+    filteredEntries.forEach((e) => {
       const name = e.gameName || "Unknown";
       const amt = getEntryAmount(e);
 
@@ -183,16 +224,34 @@ const UserHistory: FC<UserHistoryProps> = ({ userId }) => {
     return Object.values(perGame).sort((a, b) =>
       a.gameName.localeCompare(b.gameName)
     );
-  }, [entries]);
+  }, [filteredEntries]);
 
   const totalCoinsUsed = useMemo(
-    () => entries.reduce((sum, e) => sum + getEntryAmount(e), 0),
-    [entries]
+    () => filteredEntries.reduce((sum, e) => sum + getEntryAmount(e), 0),
+    [filteredEntries]
   );
 
-  const totalSessions = sessions.length;
-  const lastSignIn = sessions[0]?.signInAt || null;
-  const lastSignOut = sessions[0]?.signOutAt || null;
+  // 🔹 Summary totals computed from filtered entries (respects date range)
+  const { totalDeposit, totalRedeem, totalFreeplay } = useMemo(() => {
+    let deposit = 0;
+    let redeem = 0;
+    let freeplay = 0;
+
+    filteredEntries.forEach((e) => {
+      const amt = getEntryAmount(e);
+      if (e.type === "deposit") deposit += amt;
+      if (e.type === "redeem") redeem += amt;
+      if (e.type === "freeplay") freeplay += amt;
+    });
+
+    return {
+      totalDeposit: deposit,
+      totalRedeem: redeem,
+      totalFreeplay: freeplay,
+    };
+  }, [filteredEntries]);
+
+  const totalSessions = filteredSessions.length;
 
   const salaryTotals = useMemo(() => {
     let totalSalary = 0;
@@ -239,9 +298,7 @@ const UserHistory: FC<UserHistoryProps> = ({ userId }) => {
     []
   );
 
-  const gameStatColumns = useMemo<
-    ColumnDef<(typeof gameStats)[number], any>[]
-  >(
+  const gameStatColumns = useMemo<ColumnDef<(typeof gameStats)[number], any>[]>(
     () => [
       { header: "Game", accessorKey: "gameName" },
       { header: "# Entries", accessorKey: "timesPlayed" },
@@ -350,8 +407,7 @@ const UserHistory: FC<UserHistoryProps> = ({ userId }) => {
       {
         header: "Remaining",
         accessorKey: "remainingSalary",
-        cell: ({ row }) =>
-          fmtAmount(Number(row.original.remainingSalary || 0)),
+        cell: ({ row }) => fmtAmount(Number(row.original.remainingSalary || 0)),
       },
       {
         header: "Due Date",
@@ -367,22 +423,44 @@ const UserHistory: FC<UserHistoryProps> = ({ userId }) => {
     []
   );
 
-  const totalDeposit = summary?.totalDeposit || 0;
-  const totalRedeem = summary?.totalRedeem || 0;
-  const totalFreeplay = summary?.totalFreeplay || 0;
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-1">
         <h1 className="text-xl font-semibold">
-          User Overview {userId ? `· ${userId}` : ""}
+          User Overview {username ? `· ${username}` : ""}
         </h1>
         <p className="text-sm text-gray-500">
           Sign-ins, salary, and game activity for this user.
         </p>
       </div>
 
-      {/* Summary cards */}
+      {/* Date filter bar (applies to sessions + game entries + summary) */}
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] max-w-md">
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">
+            From Date
+          </label>
+          <input
+            type="date"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+            className="w-full border rounded px-3 py-1.5 text-sm"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">
+            To Date
+          </label>
+          <input
+            type="date"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+            className="w-full border rounded px-3 py-1.5 text-sm"
+          />
+        </div>
+      </div>
+
+      {/* Summary cards (respect username + date filters) */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 text-sm">
         <div className="p-3 border rounded-md">
           <div className="text-xs text-gray-500">Total Cash In (Deposit)</div>
@@ -419,7 +497,7 @@ const UserHistory: FC<UserHistoryProps> = ({ userId }) => {
         <h2 className="text-base font-semibold">Sign-in Sessions</h2>
         <DataTable<LoginSessionRow, any>
           columns={sessionColumns}
-          data={sessions}
+          data={filteredSessions}
           isLoading={loading}
           emptyMessage="No sessions for this user."
         />
@@ -441,13 +519,13 @@ const UserHistory: FC<UserHistoryProps> = ({ userId }) => {
         <h2 className="text-base font-semibold">All Game Entries</h2>
         <DataTable<GameEntryRow, any>
           columns={entryColumns}
-          data={entries}
+          data={filteredEntries}
           isLoading={loading}
           emptyMessage="No game entries for this user."
         />
       </div>
 
-      {/* Salary rows */}
+      {/* Salary rows (NO date filter) */}
       <div className="space-y-2">
         <h2 className="text-base font-semibold">Salary History</h2>
         <DataTable<SalaryRow, any>
