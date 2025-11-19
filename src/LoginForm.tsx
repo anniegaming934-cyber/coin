@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { apiClient } from "./apiConfig";
 import { AxiosError } from "axios";
+import { useAuth } from "./AuthContext"; // 👈 IMPORT
 
 interface LoginFormProps {
   onSwitchToRegister: () => void;
@@ -11,12 +12,14 @@ const LoginForm: React.FC<LoginFormProps> = ({
   onSwitchToRegister,
   onSuccess,
 }) => {
+  const { login } = useAuth(); // 👈 FROM CONTEXT
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false); // 👈 NEW
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [showModal, setShowModal] = useState(false); // modal control
+  const [showModal, setShowModal] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,29 +33,30 @@ const LoginForm: React.FC<LoginFormProps> = ({
         { headers: { "Content-Type": "application/json" } }
       );
 
-      if (data.token) {
-        localStorage.setItem("token", data.token);
-      }
-
       const backendRole = data.user?.role as string | undefined;
       const backendIsAdmin = Boolean(data.user?.isAdmin);
       const isAdmin =
         backendIsAdmin ||
         (backendRole && backendRole.toLowerCase() === "admin");
 
-      const role = isAdmin ? "admin" : "user";
+      const role: "admin" | "user" = isAdmin ? "admin" : "user";
 
-      localStorage.setItem("role", role);
+      const username = data.user?.name || email.split("@")[0] || "User";
+
+      // ✅ Let AuthContext handle persistence (username, token, role)
+      login({
+        username,
+        token: data.token,
+        role,
+      });
+
+      // (optional) still store extra flags if you use them elsewhere
       localStorage.setItem("isAdmin", isAdmin ? "1" : "0");
-
       if (data.user?.email) {
         localStorage.setItem("userEmail", data.user.email);
       } else {
         localStorage.setItem("userEmail", email);
       }
-
-      const username = data.user?.name || email.split("@")[0] || "User";
-      localStorage.setItem("userName", username);
 
       onSuccess(username);
     } catch (err) {
@@ -102,10 +106,9 @@ const LoginForm: React.FC<LoginFormProps> = ({
             Password
           </label>
 
-          {/* 👇 wrapper so the Show/Hide button sits inside the input */}
           <div className="relative">
             <input
-              type={showPassword ? "text" : "password"} // 👈 toggle here
+              type={showPassword ? "text" : "password"}
               className="w-full rounded-lg border border-slate-300 px-3 py-2 pr-20 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
               placeholder="••••••••"
               value={password}
@@ -159,7 +162,6 @@ const LoginForm: React.FC<LoginFormProps> = ({
         </p>
       </form>
 
-      {/* MODAL DIALOG */}
       {showModal && (
         <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 z-50">
           <div className="bg-white rounded-lg shadow-lg p-6 w-80 text-center">
