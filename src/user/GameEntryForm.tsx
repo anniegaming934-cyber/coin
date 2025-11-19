@@ -101,6 +101,9 @@ const GameEntryForm: React.FC<GameEntryFormProps> = ({ username }) => {
 
   const debouncedPlayerTag = useDebounce(ptPlayerTag, 300);
 
+  // 🧮 totalCoins per game from /api/games
+  const [gameTotals, setGameTotals] = useState<Record<string, number>>({});
+
   const ptReduction = useMemo(() => {
     const dep = Number(ptAmount) || 0;
     const cashout = Number(ptCashoutAmount) || 0;
@@ -134,6 +137,36 @@ const GameEntryForm: React.FC<GameEntryFormProps> = ({ username }) => {
       cancelled = true;
     };
   }, [username]);
+
+  // 🧮 Load totalCoins per game from /api/games
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await apiClient.get(GAMES_API_PATH);
+        const map: Record<string, number> = {};
+
+        if (Array.isArray(data)) {
+          (data as any[]).forEach((g) => {
+            const name = String(g?.name || "").trim();
+            if (!name) return;
+            const total = Number(g?.totalCoins ?? 0);
+            map[name] = Number.isFinite(total) ? total : 0;
+          });
+        }
+
+        if (!cancelled) {
+          setGameTotals(map);
+        }
+      } catch (err) {
+        console.error("Failed to load game totals:", err);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // helper: lookup pending info for a playerTag
   const lookupPendingForTag = async (tag: string, user: string) => {
@@ -387,6 +420,11 @@ const GameEntryForm: React.FC<GameEntryFormProps> = ({ username }) => {
     if (selectedGames.length === 0) return false;
     for (const g of selectedGames) {
       const base = parseAmount(amountsByGame[g] || "");
+      const totalCoinsForGame = gameTotals[g] ?? 0;
+
+      // ❌ Block if this game's totalCoins <= 0
+      if (totalCoinsForGame <= 0) return false;
+
       if (!(base > 0)) return false;
     }
     // if redeem is pending, require a pending player tag
@@ -404,6 +442,7 @@ const GameEntryForm: React.FC<GameEntryFormProps> = ({ username }) => {
     type,
     isPending,
     pendingPlayerTag,
+    gameTotals,
   ]);
 
   const canSubmitPlayer = useMemo(() => {
@@ -989,6 +1028,10 @@ const GameEntryForm: React.FC<GameEntryFormProps> = ({ username }) => {
                         bonus: 0,
                         finalAmt: 0,
                       };
+
+                      const totalCoinsForGame = gameTotals[g] ?? 0;
+                      const notEnough = totalCoinsForGame <= 0;
+
                       return (
                         <div key={g} className="border rounded-lg p-3">
                           <div className="flex items-center justify-between mb-2">
@@ -1019,9 +1062,18 @@ const GameEntryForm: React.FC<GameEntryFormProps> = ({ username }) => {
                             placeholder="0.00"
                             className="w-full rounded-lg border px-3 py-2"
                             required
+                            disabled={notEnough} // 🔒 disable when not enough
                           />
 
-                          {type === "deposit" && (
+                          {/* 🔔 Pop message when not enough totalCoins */}
+                          {notEnough && (
+                            <p className="text-[11px] text-red-600 mt-1">
+                              Not enough amount to recharge for this game.
+                              (Total coins: {totalCoinsForGame.toFixed(2)})
+                            </p>
+                          )}
+
+                          {type === "deposit" && !notEnough && (
                             <p className="text-[11px] text-slate-600 mt-2">
                               Bonus: {calc.bonus.toFixed(2)} · Final:{" "}
                               {calc.finalAmt.toFixed(2)}

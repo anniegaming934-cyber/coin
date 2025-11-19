@@ -23,6 +23,7 @@ import {
 import SalaryForm from "./SalaryForm";
 import FacebookLeadForm from "../FacebookLeadForm";
 import UserAllCashoutTable from "./UserALLCashout";
+import GameLogins from "./GameLogin";
 
 interface Game {
   id: number;
@@ -679,7 +680,11 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
 
           {/* EMPLOYEE SALARY TAB */}
           {activeSection === "employeeSalary" && <SalaryForm />}
-
+          {activeSection === "gameLogins" && (
+            <div className="grid grid-cols-1 gap-6">
+              <GameLogins />
+            </div>
+          )}
           {/* SETTINGS TAB */}
           {activeSection === "settings" && (
             <div className="text-sm text-gray-600">

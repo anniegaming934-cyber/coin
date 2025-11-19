@@ -15,14 +15,13 @@ export interface Game {
   id: number;
   name: string;
 
-  // These may now come as 0 / undefined from backend,
-  // but we keep them for compatibility.
+  // kept for compatibility (not used in this row calc)
   coinsSpent?: number;
   coinsEarned?: number;
 
   coinsRecharged: number; // coin top-up (editable)
   lastRechargeDate?: string; // editable with recharge
-  totalCoins?: number; // optional, from backend (not required now)
+  totalCoins?: number; // optional, from backend
 }
 
 interface GameRowProps {
@@ -31,7 +30,7 @@ interface GameRowProps {
   isEditing: boolean;
   onEditStart: (id: number) => void;
 
-  // Keep signature for compatibility; we’ll pass 0 for spent/redeem
+  // Keep signature for compatibility; we pass 0 for spent/redeem
   onUpdate: (
     id: number,
     spentChange: number,
@@ -75,7 +74,9 @@ const GameRow: FC<GameRowProps> = ({
     game.lastRechargeDate || toTodayISO()
   );
 
-  // 🔢 Total coins from /api/game-entries (deposit + freeplay)
+  // 🔢 Net total coins from /api/game-entries for this game
+  //   freeplay + deposit  → subtract
+  //   redeem              → add
   const [totalFromEntries, setTotalFromEntries] = useState<number>(0);
   const [loadingEntries, setLoadingEntries] = useState<boolean>(false);
 
@@ -98,16 +99,26 @@ const GameRow: FC<GameRowProps> = ({
         });
 
         const entries = Array.isArray(data) ? data : [];
-        const sum = entries.reduce((acc: number, e: any) => {
+
+        // totalCoin starts at 0
+        // deposit/freeplay → subtract amountFinal
+        // redeem           → add amountFinal
+        const netTotal = entries.reduce((acc: number, e: any) => {
           const t = String(e.type || "").toLowerCase();
+          const amtRaw = e.amountFinal ?? e.amount ?? 0;
+          const amt = Number(amtRaw);
+          if (!Number.isFinite(amt) || amt <= 0) return acc;
+
           if (t === "deposit" || t === "freeplay") {
-            const amt = Number(e.amountFinal ?? e.amount ?? 0) || 0; // prefer amountFinal
-            return acc + (Number.isFinite(amt) ? amt : 0);
+            return acc - amt;
+          }
+          if (t === "redeem") {
+            return acc + amt;
           }
           return acc;
         }, 0);
 
-        setTotalFromEntries(sum);
+        setTotalFromEntries(netTotal);
       } catch (err) {
         console.error(
           "Failed to load game entry totals for game:",
@@ -123,9 +134,7 @@ const GameRow: FC<GameRowProps> = ({
     loadTotals();
   }, [game.name]);
 
-  // Total coins = from entries (deposit + freeplay)
-  // You can also add coinsRecharged if you want:
-  // const totalCoinValue = totalFromEntries + (game.coinsRecharged || 0);
+  // Total coins = net from entries according to type rules
   const totalCoinValue = totalFromEntries;
 
   const pnl = totalCoinValue * coinValue;
@@ -145,11 +154,10 @@ const GameRow: FC<GameRowProps> = ({
 
     const newCoinsRecharged = (game.coinsRecharged || 0) + rechargeChange;
 
-    // You can choose what totalCoinsAfter means here; we’ll use:
-    // total from entries + new recharge (for backend if it wants to store something)
+    // Choose what totalCoinsAfter means for backend; here:
+    // net from entries + new recharge
     const totalCoinsAfter = Math.abs(totalFromEntries + newCoinsRecharged);
 
-    // 🔁 FIX: match onUpdate signature (spentChange, earnedChange, rechargeChange, totalCoinsAfter, date)
     onUpdate(game.id, 0, 0, rechargeChange, totalCoinsAfter, dateOrUndefined);
 
     setRechargeStr("");
@@ -275,7 +283,7 @@ const GameRow: FC<GameRowProps> = ({
         </span>
       </div>
 
-      {/* Total coin (from game-entries deposit + freeplay) */}
+      {/* Total coin from entries (redeem add, deposit/freeplay minus) */}
       <div className="col-span-2 text-sm">
         <span
           className={`font-mono ${

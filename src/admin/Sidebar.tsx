@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Info,
+  Login,
   UserRoundPlus,
   Calculator,
   Gamepad,
@@ -30,6 +31,7 @@ export type SidebarSection =
   | "gameEntries"
   | "employeeSalary"
   | "playerinfo"
+  | "gameLogins"
   | "settings";
 
 type SidebarMode = "admin" | "user";
@@ -73,6 +75,7 @@ const Sidebar: FC<SidebarProps> = ({
       { id: "charts", label: "Charts", icon: BarChart2 },
       { id: "UserAdminTable", label: "UserAdmin Table", icon: User },
       { id: "playerinfo", label: "Player Info", icon: Info },
+      { id: "gameLogins", label: "Game Logins", icon: Login },
       { id: "userHistroy", label: "User History", icon: Calculator },
       { id: "employeeSalary", label: "Salary Sheet", icon: UserRoundPlus },
 
