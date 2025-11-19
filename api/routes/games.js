@@ -158,7 +158,7 @@ router.post("/games", async (req, res) => {
 // PUT /api/games/:id  (update recharge & lastRechargeDate)
 router.put("/games/:id", async (req, res) => {
   const { id } = req.params;
-  const { coinsRecharged, lastRechargeDate } = req.body;
+  const { coinsRecharged, lastRechargeDate, totalCoins } = req.body;
 
   try {
     await connectDB();
@@ -174,7 +174,12 @@ router.put("/games/:id", async (req, res) => {
       game.lastRechargeDate = lastRechargeDate;
     }
 
+    if (typeof totalCoins === "number") {
+      game.totalCoins = totalCoins;
+    }
+
     await game.save();
+
     res.json(game);
   } catch (err) {
     console.error("PUT /api/games/:id error:", err);
