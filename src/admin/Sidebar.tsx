@@ -13,7 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Info,
-  Login,
+  LogIn,
   UserRoundPlus,
   Calculator,
   Gamepad,
@@ -75,7 +75,7 @@ const Sidebar: FC<SidebarProps> = ({
       { id: "charts", label: "Charts", icon: BarChart2 },
       { id: "UserAdminTable", label: "UserAdmin Table", icon: User },
       { id: "playerinfo", label: "Player Info", icon: Info },
-      { id: "gameLogins", label: "Game Logins", icon: Login },
+      { id: "gameLogins", label: "Game Logins", icon: LogIn },
       { id: "userHistroy", label: "User History", icon: Calculator },
       { id: "employeeSalary", label: "Salary Sheet", icon: UserRoundPlus },
 

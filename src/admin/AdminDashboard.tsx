@@ -32,6 +32,9 @@ interface Game {
   coinsSpent: number; // freeplay+deposit in your net calc
   coinsRecharged: number; // editable
   lastRechargeDate?: string;
+
+  // 👇 NEW: comes from /api/games aggregation
+  totalCoins?: number; // net coin for that game (coinsRecharged - freeplay - deposit + redeem)
 }
 
 interface AdminDashboardProps {
@@ -90,7 +93,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
 
   const fetchGames = async () => {
     try {
-      const { data } = await apiClient.get(GAMES_API);
+      const { data } = await apiClient.get<Game[]>(GAMES_API);
 
       if (!Array.isArray(data)) {
         console.error("❌ Expected an array of games, got:", data);
@@ -174,6 +177,15 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
 
   // 🔹 Total deposit revenue from GameEntry (all methods)
   const totalDepositRevenueUsd = entrySummary.totalDeposit;
+
+  // 🔹 NEW: Total Coin (all Game Entries) from /api/games (sum of totalCoins)
+  const totalGameEntriesCoin = useMemo(
+    () =>
+      games.reduce((sum, g) => {
+        return sum + (g.totalCoins ?? 0);
+      }, 0),
+    [games]
+  );
 
   // ---------------------------
   // Game mutations (from GameRow modal)
@@ -330,7 +342,11 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
         id: "totalCoin",
         cell: ({ row }) => {
           const g = row.original;
-          const derivedNet = g.coinsEarned - (g.coinsSpent + g.coinsRecharged);
+
+          // Prefer backend `totalCoins` if present, otherwise fall back to derived
+          const derivedNet =
+            g.totalCoins ?? g.coinsEarned - (g.coinsSpent + g.coinsRecharged);
+
           const total = Math.abs(derivedNet);
           const cls =
             derivedNet < 0
@@ -348,7 +364,10 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
         id: "pnl",
         cell: ({ row }) => {
           const g = row.original;
-          const derivedNet = g.coinsEarned - (g.coinsSpent + g.coinsRecharged);
+
+          const derivedNet =
+            g.totalCoins ?? g.coinsEarned - (g.coinsSpent + g.coinsRecharged);
+
           const pnl = derivedNet * COIN_VALUE;
           const pos = pnl >= 0;
           const Icon = pos ? TrendingUp : TrendingDown;
@@ -479,24 +498,21 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                         </td>
                       </tr>
 
-                      {/* All coin from GameEntry */}
+                      {/* All coin from /api/games (sum of totalCoins) */}
                       <tr>
                         <td className="px-4 py-2 text-gray-700">
                           Total Coin (all Game Entries)
                         </td>
                         <td className="px-4 py-2 text-right font-semibold text-indigo-600">
-                          {entrySummary.totalCoin.toLocaleString()}{" "}
+                          {totalGameEntriesCoin.toLocaleString()}{" "}
                           <span className="ml-1 text-[11px] text-slate-400">
-                            (
-                            {formatCurrency(
-                              entrySummary.totalCoin * COIN_VALUE
-                            )}
+                            ({formatCurrency(totalGameEntriesCoin * COIN_VALUE)}
                             )
                           </span>
                         </td>
                       </tr>
 
-                      {/* Coin breakdown from GameEntry */}
+                      {/* Coin breakdown from GameEntry summary */}
                       <tr>
                         <td className="px-4 py-2 text-gray-700">
                           Total Deposit (coins)
