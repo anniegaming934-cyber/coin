@@ -12,11 +12,10 @@ import { Clock } from "lucide-react";
 import { apiClient } from "../apiConfig";
 import { DataTable } from "../DataTable";
 
-// Pending entries come from GameEntry model
+// Pending entries come from GameEntry /pending route
 interface ServerPendingEntry {
   _id: string;
   username: string;
-  type: "freeplay" | "deposit" | "redeem" | string;
   method?: string;
   playerName?: string;
   playerTag?: string;
@@ -24,19 +23,17 @@ interface ServerPendingEntry {
   totalPaid?: number;
   totalCashout?: number;
   remainingPay?: number;
-  reduction?: number;
-  isPending?: boolean;
   date?: string; // "YYYY-MM-DD"
   createdAt?: string; // ISO
 }
 
 export interface PendingRow {
   _id: string;
-  type: string; // deposit | redeem
+  type: string; // "redeem" (for now)
   label: string; // playerName or playerTag
   method: string;
   gameName: string;
-  pendingAmount: number; // remainingPay (redeem) or reduction (deposit)
+  pendingAmount: number; // remainingPay
   createdAt: string;
 }
 
@@ -76,28 +73,27 @@ const UserCashoutTable: FC = () => {
         const res = await apiClient.get<ServerPendingEntry[]>(
           "/api/game-entries/pending"
         );
+
+        console.log("Pending entries from API:", res.data); // 👈 helpful debug
+
         const mapped: PendingRow[] = res.data
           .map((e) => {
-            // “who” label: prefer playerName, else playerTag
+            // label: prefer playerName, else playerTag
             const label = e.playerName?.trim()
               ? e.playerName.trim()
               : e.playerTag?.trim()
               ? e.playerTag.trim()
               : "Unknown";
 
-            // pending amount:
-            //  - redeem (our tag): remainingPay
-            //  - deposit (player tag): reduction
-            const isRedeem = e.type === "redeem";
-            const pendingAmount = isRedeem
-              ? Number(e.remainingPay || 0)
-              : Number(e.reduction || 0);
+            // For /pending route, we only have pending REDEEMs,
+            // so pending amount = remainingPay
+            const pendingAmount = Number(e.remainingPay ?? 0);
 
             if (!(pendingAmount > 0)) return null;
 
             return {
               _id: e._id,
-              type: e.type,
+              type: "redeem", // current /pending is only redeems
               label,
               method: e.method || "-",
               gameName: e.gameName || "-",
@@ -128,7 +124,7 @@ const UserCashoutTable: FC = () => {
       setUpdatingId(row._id);
       setError("");
 
-      // 🔧 Backend route
+      // Backend route to clear pending
       await apiClient.patch(`/api/game-entries/${row._id}/clear-pending`, {
         reduction: 0,
       });
@@ -243,7 +239,7 @@ const UserCashoutTable: FC = () => {
                     ? "bg-gray-400 cursor-not-allowed"
                     : "bg-green-600 hover:bg-green-700"
                 }`}
-                onClick={() => setConfirmRow(data)} // 👈 open our custom modal
+                onClick={() => setConfirmRow(data)} // open modal
               >
                 {busy ? "Saving..." : "Mark Paid"}
               </button>
@@ -287,7 +283,7 @@ const UserCashoutTable: FC = () => {
         <DataTable<PendingRow> columns={columns} data={rows} />
       )}
 
-      {/* 🔽 Simple built-in confirm modal */}
+      {/* Confirm modal */}
       {confirmRow && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white text-black rounded-lg shadow-lg p-5 w-full max-w-sm">
