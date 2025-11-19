@@ -114,10 +114,11 @@ const UserTable: React.FC<UserTableProps> = ({ username }) => {
       };
 
       const baseTotal = safeNumber((g as any).totalCoins);
-      const adjustedTotal = Math.max(
-        0,
-        baseTotal - s.freeplay - s.deposit + s.redeem
-      );
+      let adjustedTotal = baseTotal;
+
+      adjustedTotal -= s.freeplay; // subtract freeplay
+      adjustedTotal -= s.deposit; // subtract deposit
+      adjustedTotal += s.redeem; // add redeem
 
       return {
         ...g,
