@@ -15,8 +15,6 @@ const AddGameForm: FC<AddGameFormProps> = ({ onGameAdded }) => {
     try {
       await apiClient.post("/api/games", {
         name: name.trim(),
-        coinsSpent: 0,
-        coinsEarned: 0,
         coinsRecharged: 0,
       });
       setName(""); // Clear input

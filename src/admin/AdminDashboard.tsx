@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import SalaryForm from "./SalaryForm";
 import FacebookLeadForm from "../FacebookLeadForm";
+import UserAllCashoutTable from "./UserALLCashout";
 
 interface Game {
   id: number;
@@ -66,12 +67,13 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
     totalDeposit: 0,
     totalRedeem: 0,
     totalPendingRemainingPay: 0,
+    totalPendingCount: 0, // ✅ new
     totalReduction: 0,
     totalExtraMoney: 0,
-    cashappDeposit: 0,
-    paypalDeposit: 0,
-    chimeDeposit: 0,
-    venmoDeposit: 0,
+    revenueCashApp: 0, // ✅ renamed to match API
+    revenuePayPal: 0,
+    revenueChime: 0,
+    revenueVenmo: 0,
   });
 
   // ---------------------------
@@ -140,12 +142,13 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
         totalDeposit: Number(data.totalDeposit) || 0,
         totalRedeem: Number(data.totalRedeem) || 0,
         totalPendingRemainingPay: Number(data.totalPendingRemainingPay) || 0,
+        totalPendingCount: Number(data.totalPendingCount) || 0, // ✅ new
         totalReduction: Number(data.totalReduction) || 0,
         totalExtraMoney: Number(data.totalExtraMoney) || 0,
-        cashappDeposit: Number(data.cashappDeposit) || 0,
-        paypalDeposit: Number(data.paypalDeposit) || 0,
-        chimeDeposit: Number(data.chimeDeposit) || 0,
-        venmoDeposit: Number(data.venmoDeposit) || 0,
+        revenueCashApp: Number(data.revenueCashApp) || 0, // ✅ map from backend
+        revenuePayPal: Number(data.revenuePayPal) || 0,
+        revenueChime: Number(data.revenueChime) || 0,
+        revenueVenmo: Number(data.revenueVenmo) || 0,
       });
     } catch (err) {
       console.error("Failed to load game entry summary:", err);
@@ -155,19 +158,19 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
   // ---------------------------
   // (Games table) stats only used for per-game P&L
   // ---------------------------
-  // If you still want totals from /api/totals somewhere else, keep this:
   const totalPaymentsUsd =
     (Number(paymentTotals.cashapp) || 0) +
     (Number(paymentTotals.paypal) || 0) +
     (Number(paymentTotals.chime) || 0);
 
   // 🔹 Revenue (USD) from GameEntry deposits per method
-  const cashappDepositUsd = entrySummary.cashappDeposit * COIN_VALUE;
-  const paypalDepositUsd = entrySummary.paypalDeposit * COIN_VALUE;
-  const chimeDepositUsd = entrySummary.chimeDeposit * COIN_VALUE;
-  const venmoDepositUsd = entrySummary.venmoDeposit * COIN_VALUE;
+  //    backend returns coins → convert to USD using COIN_VALUE
+  const cashappDepositUsd = entrySummary.revenueCashApp * COIN_VALUE; // ✅
+  const paypalDepositUsd = entrySummary.revenuePayPal * COIN_VALUE; // ✅
+  const chimeDepositUsd = entrySummary.revenueChime * COIN_VALUE; // ✅
+  const venmoDepositUsd = entrySummary.revenueVenmo * COIN_VALUE; // ✅
 
-  // 🔹 Total deposit revenue from GameEntry
+  // 🔹 Total deposit revenue from GameEntry (all methods)
   const totalDepositRevenueUsd = entrySummary.totalDeposit * COIN_VALUE;
 
   // ---------------------------
@@ -550,6 +553,16 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                         </td>
                       </tr>
 
+                      {/* Optional: show how many pending entries */}
+                      <tr>
+                        <td className="px-4 py-2 text-gray-700">
+                          Pending Entries Count
+                        </td>
+                        <td className="px-4 py-2 text-right font-semibold text-amber-700">
+                          {entrySummary.totalPendingCount}
+                        </td>
+                      </tr>
+
                       {/* Per-method deposit revenue (from GameEntry) */}
                       <tr>
                         <td className="px-4 py-2 text-gray-700">
@@ -605,15 +618,8 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
               <div className="mb-8">
                 <AdminUserActivityTable />
               </div>
-
-              {/* Add game form */}
-              <div className="mb-10 gap-6 mt-6">
-                <AddGameForm onGameAdded={fetchGames} />
-              </div>
-
-              {/* Games list — DataTable */}
-              <div className="mt-8 overflow-hidden rounded-lg border border-gray-200 shadow-sm bg-white p-2">
-                <DataTable columns={gameColumns} data={games} />
+              <div className="mb-8">
+                <UserAllCashoutTable />
               </div>
             </>
           )}
