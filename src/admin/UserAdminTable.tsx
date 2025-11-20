@@ -121,7 +121,7 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ onViewHistory }) => {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">User Admin</h2>
+        <h2 className="text-lg font-semibold">User list</h2>
 
         <button
           onClick={fetchUsers}
