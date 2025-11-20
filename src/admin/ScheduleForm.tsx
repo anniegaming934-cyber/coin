@@ -1,11 +1,18 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { apiClient } from "../apiConfig";
 
 type ScheduleItem = {
   id: number;
+  username?: string;
   day: string;
   startTime: string;
   endTime: string;
   title: string;
+};
+
+type UserOption = {
+  username: string;
+  _id?: string;
 };
 
 const days = [
@@ -22,12 +29,42 @@ const ScheduleForm: React.FC = () => {
   const [items, setItems] = useState<ScheduleItem[]>([]);
   const [editingId, setEditingId] = useState<number | null>(null);
 
+  const [username, setUsername] = useState("");
   const [day, setDay] = useState("Monday");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [title, setTitle] = useState("");
 
+  const [userOptions, setUserOptions] = useState<UserOption[]>([]);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [userError, setUserError] = useState("");
+
+  // 🔹 Load usernames from backend
+  useEffect(() => {
+    const fetchUsers = async () => {
+      try {
+        setLoadingUsers(true);
+        setUserError("");
+
+        // 👉 adjust URL according to your backend route
+        // e.g. "/users/summary" or "/admin/users"
+        const res = await apiClient.get("/api/admin/users");
+
+        // Expecting array like [{ username: "user1", ... }, ...]
+        setUserOptions(res.data || []);
+      } catch (err) {
+        console.error("Failed to load usernames", err);
+        setUserError("Failed to load usernames");
+      } finally {
+        setLoadingUsers(false);
+      }
+    };
+
+    fetchUsers();
+  }, []);
+
   const resetForm = () => {
+    setUsername("");
     setDay("Monday");
     setStartTime("");
     setEndTime("");
@@ -38,14 +75,14 @@ const ScheduleForm: React.FC = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!title.trim() || !startTime || !endTime) return;
+    if (!username || !title.trim() || !startTime || !endTime) return;
 
     if (editingId !== null) {
       // update existing
       setItems((prev) =>
         prev.map((item) =>
           item.id === editingId
-            ? { ...item, day, startTime, endTime, title }
+            ? { ...item, username, day, startTime, endTime, title }
             : item
         )
       );
@@ -53,6 +90,7 @@ const ScheduleForm: React.FC = () => {
       // add new
       const newItem: ScheduleItem = {
         id: Date.now(),
+        username,
         day,
         startTime,
         endTime,
@@ -66,6 +104,7 @@ const ScheduleForm: React.FC = () => {
 
   const handleEdit = (item: ScheduleItem) => {
     setEditingId(item.id);
+    setUsername(item.username || "");
     setDay(item.day);
     setStartTime(item.startTime);
     setEndTime(item.endTime);
@@ -86,7 +125,32 @@ const ScheduleForm: React.FC = () => {
         onSubmit={handleSubmit}
         className="space-y-4 rounded-xl border p-4 shadow-sm bg-white"
       >
-        <div className="grid gap-4 md:grid-cols-4">
+        {/* Username + Day + Times + Task */}
+        <div className="grid gap-4 md:grid-cols-5">
+          {/* Username */}
+          <div className="md:col-span-1">
+            <label className="block text-sm font-medium mb-1">Username</label>
+            <select
+              className="w-full border rounded-md px-2 py-1 text-sm"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              disabled={loadingUsers}
+            >
+              <option value="">
+                {loadingUsers ? "Loading users..." : "Select user"}
+              </option>
+              {userOptions.map((u) => (
+                <option key={u.username} value={u.username}>
+                  {u.username}
+                </option>
+              ))}
+            </select>
+            {userError && (
+              <p className="mt-1 text-xs text-red-500">{userError}</p>
+            )}
+          </div>
+
+          {/* Day */}
           <div className="md:col-span-1">
             <label className="block text-sm font-medium mb-1">Day</label>
             <select
@@ -102,6 +166,7 @@ const ScheduleForm: React.FC = () => {
             </select>
           </div>
 
+          {/* Start Time */}
           <div>
             <label className="block text-sm font-medium mb-1">Start Time</label>
             <input
@@ -112,6 +177,7 @@ const ScheduleForm: React.FC = () => {
             />
           </div>
 
+          {/* End Time */}
           <div>
             <label className="block text-sm font-medium mb-1">End Time</label>
             <input
@@ -122,6 +188,7 @@ const ScheduleForm: React.FC = () => {
             />
           </div>
 
+          {/* Task */}
           <div className="md:col-span-1">
             <label className="block text-sm font-medium mb-1">Task</label>
             <input
@@ -158,6 +225,7 @@ const ScheduleForm: React.FC = () => {
         <table className="w-full text-sm">
           <thead className="bg-gray-100">
             <tr>
+              <th className="text-left px-3 py-2">Username</th>
               <th className="text-left px-3 py-2">Day</th>
               <th className="text-left px-3 py-2">Time</th>
               <th className="text-left px-3 py-2">Task</th>
@@ -167,7 +235,7 @@ const ScheduleForm: React.FC = () => {
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-3 py-4 text-center text-gray-500">
+                <td colSpan={5} className="px-3 py-4 text-center text-gray-500">
                   No schedule items yet. Add one above.
                 </td>
               </tr>
@@ -178,6 +246,7 @@ const ScheduleForm: React.FC = () => {
               .sort((a, b) => a.day.localeCompare(b.day))
               .map((item) => (
                 <tr key={item.id} className="border-t">
+                  <td className="px-3 py-2">{item.username}</td>
                   <td className="px-3 py-2">{item.day}</td>
                   <td className="px-3 py-2">
                     {item.startTime} - {item.endTime}
