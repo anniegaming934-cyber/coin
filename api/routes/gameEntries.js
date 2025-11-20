@@ -392,28 +392,43 @@ router.get("/pending-by-tag", async (req, res) => {
  * 🔹 GET /api/game-entries/summary
  * Global totals + deposit revenue split by payment method
  */
+// ✅ GET /api/game-entries/summary
 router.get("/summary", async (_req, res) => {
   try {
     // -------------------------
     // 1️⃣ TOTALS BY TYPE (COIN EXPRESSION)
+    //    - freeplay  -> coins (from COIN_AMOUNT_EXPR)
+    //    - redeem    -> coins (from COIN_AMOUNT_EXPR)
+    //    - deposit   -> coins from amountFinal (NOT base money)
     // -------------------------
     const byType = await GameEntry.aggregate([
       {
         $group: {
           _id: "$type",
-          totalAmount: { $sum: COIN_AMOUNT_EXPR },
+          totalAmount: {
+            $sum: {
+              $cond: [
+                // 🔹 For deposit, use amountFinal (total coins given)
+                { $eq: ["$type", "deposit"] },
+                { $ifNull: ["$amountFinal", 0] },
+
+                // 🔹 For freeplay & redeem, use your existing coin expression
+                COIN_AMOUNT_EXPR,
+              ],
+            },
+          },
         },
       },
     ]);
 
     let totalFreeplay = 0;
-    let totalDeposit = 0;
+    let totalDeposit = 0; // in COINS (from amountFinal)
     let totalRedeem = 0;
 
     for (const t of byType) {
-      if (t._id === "freeplay") totalFreeplay = t.totalAmount;
-      if (t._id === "deposit") totalDeposit = t.totalAmount;
-      if (t._id === "redeem") totalRedeem = t.totalAmount;
+      if (t._id === "freeplay") totalFreeplay = t.totalAmount || 0;
+      if (t._id === "deposit") totalDeposit = t.totalAmount || 0;
+      if (t._id === "redeem") totalRedeem = t.totalAmount || 0;
     }
 
     // ✅ net total coins after freeplay + deposit + redeem
@@ -428,7 +443,9 @@ router.get("/summary", async (_req, res) => {
       {
         $group: {
           _id: null,
-          totalPendingRemainingPay: { $sum: { $ifNull: ["$remainingPay", 0] } },
+          totalPendingRemainingPay: {
+            $sum: { $ifNull: ["$remainingPay", 0] },
+          },
           totalPendingCount: { $sum: 1 },
         },
       },
@@ -449,6 +466,7 @@ router.get("/summary", async (_req, res) => {
 
     // -------------------------
     // 4️⃣ REVENUE BY DEPOSIT METHOD (amountBase only)
+    //    -> REAL MONEY (NOT COINS)
     // -------------------------
     const depositByMethod = await GameEntry.aggregate([
       { $match: { type: "deposit" } },
@@ -467,10 +485,10 @@ router.get("/summary", async (_req, res) => {
     let revenueVenmo = 0;
 
     for (const row of depositByMethod) {
-      if (row._id === "cashapp") revenueCashApp = row.totalAmount;
-      if (row._id === "paypal") revenuePayPal = row.totalAmount;
-      if (row._id === "chime") revenueChime = row.totalAmount;
-      if (row._id === "venmo") revenueVenmo = row.totalAmount;
+      if (row._id === "cashapp") revenueCashApp = row.totalAmount || 0;
+      if (row._id === "paypal") revenuePayPal = row.totalAmount || 0;
+      if (row._id === "chime") revenueChime = row.totalAmount || 0;
+      if (row._id === "venmo") revenueVenmo = row.totalAmount || 0;
     }
 
     // ✅ total revenue (real money) from all deposit methods (amountBase)
@@ -481,17 +499,21 @@ router.get("/summary", async (_req, res) => {
     // 5️⃣ FINAL RESPONSE
     // -------------------------
     res.json({
-      totalFreeplay,
-      totalDeposit,
-      totalRedeem,
-      totalCoin,
+      // 🔹 Coin stats (all in COINS)
+      totalFreeplay, // coins used in freeplay
+      totalDeposit, // coins given on deposits (amountFinal)
+      totalRedeem, // coins redeemed back
+      totalCoin, // net coin = redeem - (freeplay + deposit)
 
+      // 🔹 Pending stats
       totalPendingRemainingPay: pendingAgg?.totalPendingRemainingPay || 0,
       totalPendingCount: pendingAgg?.totalPendingCount || 0,
 
+      // 🔹 Reduction / extra money
       totalReduction: extraAgg?.totalReduction || 0,
       totalExtraMoney: extraAgg?.totalExtraMoney || 0,
 
+      // 🔹 Real-money revenue (amountBase)
       revenueCashApp,
       revenuePayPal,
       revenueChime,
@@ -503,6 +525,7 @@ router.get("/summary", async (_req, res) => {
     res.status(500).json({ message: "Failed to load game entry summary" });
   }
 });
+
 /**
  * 🔹 GET /api/game-entries/summary-by-game
  */

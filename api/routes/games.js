@@ -41,7 +41,9 @@ router.get("/games", async (req, res) => {
     // 1) Load all games
     const games = await Game.find({}).sort({ createdAt: 1 }).lean();
 
-    const gameNames = games.map((g) => g.name);
+    const gameNames = games
+      .map((g) => g.name)
+      .filter((n) => typeof n === "string" && n.trim().length > 0);
 
     // 2) Aggregate GameEntry totals for each game
     const totals = await GameEntry.aggregate([
@@ -89,7 +91,7 @@ router.get("/games", async (req, res) => {
       };
     }
 
-    // 3) Merge totals + compute totalCoins
+    // 3) Merge totals + compute totalCoins (recharge + redeem - deposit - freeplay)
     const enriched = games.map((g) => {
       const s = totalsByGame[g.name] || {
         freeplay: 0,
@@ -97,18 +99,22 @@ router.get("/games", async (req, res) => {
         redeem: 0,
       };
 
-      const coinsRecharged = g.coinsRecharged || 0;
+      // Make sure this is a safe number
+      const coinsRecharged = Number(g.coinsRecharged) || 0;
 
-      // NEW RULE:
-      // If redeem exists → totalCoins = coinsRecharged + redeem
-      // Else             → totalCoins = coinsRecharged - freeplay - deposit
-      let totalCoins;
+      // Step 1: start from recharge
+      let totalCoins = coinsRecharged;
 
-      if (s.redeem > 0) {
-        totalCoins = coinsRecharged + s.redeem;
-      } else {
-        totalCoins = coinsRecharged - s.freeplay - s.deposit;
-      }
+      // Step 2: add redeem
+      totalCoins += s.redeem;
+
+      // Step 3: subtract deposit
+      totalCoins -= s.deposit;
+      if (totalCoins < 0) totalCoins = 0;
+
+      // Step 4: subtract freeplay from remaining
+      totalCoins -= s.freeplay;
+      if (totalCoins < 0) totalCoins = 0;
 
       return {
         ...g,

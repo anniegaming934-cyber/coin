@@ -1,12 +1,40 @@
 import mongoose from "mongoose";
 
+const DAYS = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+];
+
 const ScheduleSchema = new mongoose.Schema(
   {
-    day: { type: String, required: true }, // Monday–Sunday
-    startTime: { type: String, required: true }, // "09:00"
-    endTime: { type: String, required: true }, // "10:30"
-    title: { type: String, required: true }, // "Study", "Work", etc.
-    username: { type: String, required: false }, // optional: per-user schedule
+    username: {
+      type: String,
+      required: true, // schedule is always tied to a user
+      trim: true,
+    },
+    day: {
+      type: String,
+      enum: DAYS,
+      required: true,
+    },
+    startTime: {
+      type: String, // "09:00"
+      required: true,
+    },
+    endTime: {
+      type: String, // "10:30"
+      required: true,
+    },
+    title: {
+      type: String, // "Work", "Study", ...
+      required: true,
+      trim: true,
+    },
   },
   { timestamps: true }
 );
