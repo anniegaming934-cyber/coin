@@ -13,6 +13,8 @@ import adminUserRoutes from "./routes/adminUsers.js";
 import facebookLeadRoutes from "./routes/facebookLeads.js";
 import gameEntryRoutes from "./routes/gameEntries.js";
 import salariesRouter from "./routes/salary.js";
+import schedulesRouter from "./routes/schedules.js";
+
 if (process.env.NODE_ENV !== "production") {
   dotenv.config(); // local dev only
 }
@@ -61,6 +63,7 @@ app.use("/api/game-entries", gameEntryRoutes);
 
 app.use("/api/salaries", salariesRouter);
 
+app.use("/api/schedules", schedulesRouter);
 // ✅ Start server
 const PORT = process.env.PORT || 5000;
 

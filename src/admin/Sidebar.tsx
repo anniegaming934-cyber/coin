@@ -15,6 +15,7 @@ import {
   Info,
   LogIn,
   UserRoundPlus,
+  CalendarDays,
   Calculator,
   Gamepad,
   FileUser,
@@ -32,6 +33,7 @@ export type SidebarSection =
   | "employeeSalary"
   | "playerinfo"
   | "gameLogins"
+  | "schedule"
   | "settings";
 
 type SidebarMode = "admin" | "user";
@@ -78,7 +80,7 @@ const Sidebar: FC<SidebarProps> = ({
       { id: "gameLogins", label: "Game Logins", icon: LogIn },
       { id: "userHistroy", label: "User History", icon: Calculator },
       { id: "employeeSalary", label: "Salary Sheet", icon: UserRoundPlus },
-
+      { id: "schedule", label: "Schedule Sheet", icon: CalendarDays },
       { id: "settings", label: "Settings", icon: Settings },
     ];
 
