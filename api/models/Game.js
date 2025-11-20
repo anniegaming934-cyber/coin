@@ -13,11 +13,12 @@ const GameSchema = new mongoose.Schema(
 
     // optional recharge timestamp (YYYY-MM-DD)
     lastRechargeDate: { type: String, default: null },
+
+    // ⭐ NEW FIELD: always updated by GameEntry logic
+    totalCoins: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
-
-// ❌ no pre("save") — totalCoins is calculated in routes using GameEntry
 
 const Game = mongoose.models.Game || mongoose.model("Game", GameSchema);
 export default Game;

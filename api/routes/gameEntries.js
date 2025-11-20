@@ -6,7 +6,7 @@ import GameEntry, {
   ALLOWED_METHODS,
 } from "../models/GameEntry.js";
 import GameEntryHistory from "../models/GameEntryHistory.js";
-import Game from "../models/Game.js"; // 👈 NEW: to update totalCoins on Game
+import Game from "../models/Game.js"; // for totalCoins updates
 
 const router = express.Router();
 
@@ -50,7 +50,7 @@ const COIN_AMOUNT_EXPR = {
   $ifNull: ["$amountFinal", { $ifNull: ["$amount", 0] }],
 };
 
-// ⭐ NEW: how much this entry changes totalCoins
+// ⭐ how much this entry changes totalCoins
 function coinEffect(type, amountFinal) {
   const amt = Number(amountFinal);
   if (!Number.isFinite(amt) || amt <= 0) return 0;
@@ -62,7 +62,7 @@ function coinEffect(type, amountFinal) {
   return 0;
 }
 
-// ⭐ NEW: apply a delta to Game.totalCoins
+// ⭐ apply a delta to Game.totalCoins
 async function applyGameDelta(gameName, delta) {
   try {
     const name = String(gameName || "").trim();
@@ -120,6 +120,20 @@ async function recordHistory(entry, action = "update") {
   }
 }
 
+// ⭐ Build monthly filter on createdAt (Date)
+function buildMonthFilter(year, month) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
+    return {};
+  }
+
+  const start = new Date(y, m - 1, 1); // inclusive
+  const end = new Date(y, m, 1); // exclusive
+
+  return { createdAt: { $gte: start, $lt: end } };
+}
+
 /**
  * 🔹 GET /api/game-entries
  * Optional query:
@@ -152,7 +166,7 @@ router.get("/", async (req, res) => {
       filter.playerTag = String(playerTag).trim();
     }
 
-    // date range filter (stored as "YYYY-MM-DD")
+    // date range filter (stored as "YYYY-MM-DD" string)
     const from = normalizeDateString(dateFrom);
     const to = normalizeDateString(dateTo);
 
@@ -257,7 +271,7 @@ router.post("/", async (req, res) => {
 
     await recordHistory(doc, "create");
 
-    // ⭐ NEW: Update Game.totalCoins using type and amountFinal
+    // ⭐ Update Game.totalCoins using type and amountFinal
     const delta = coinEffect(doc.type, doc.amountFinal);
     if (delta !== 0) {
       await applyGameDelta(doc.gameName, delta);
@@ -272,8 +286,6 @@ router.post("/", async (req, res) => {
 
 /**
  * 🔹 GET /api/game-entries/pending
- * Returns pending redeems (optionally filtered by username)
- * Used for: username, time, playerName, game, totalPaid, totalRemaining
  */
 router.get("/pending", async (req, res) => {
   try {
@@ -303,11 +315,8 @@ router.get("/pending", async (req, res) => {
       return {
         _id: String(e._id),
         username: e.username,
-
-        // 👇 now clearly separated
         playerName: e.playerName || "",
         playerTag: e.playerTag || "",
-
         gameName: e.gameName,
         method: e.method || "",
         totalPaid,
@@ -390,30 +399,69 @@ router.get("/pending-by-tag", async (req, res) => {
 
 /**
  * 🔹 GET /api/game-entries/summary
- * Global totals + deposit revenue split by payment method
+ * Global totals + deposit revenue split by payment method (monthly via createdAt)
  */
-// ✅ GET /api/game-entries/summary
-router.get("/summary", async (_req, res) => {
+// 🔹 GET /api/game-entries/summary
+//     /api/game-entries/summary?year=2024&month=8
+/**
+ * 🔹 GET /api/game-entries/summary
+ * Global totals + deposit revenue split by payment method
+ * Supports:
+ *   - /api/game-entries/summary             → all time
+ *   - /api/game-entries/summary?year=2024&month=8  → that month only (using `date` string)
+ */
+// 🔹 GET /api/game-entries/summary
+//     /api/game-entries/summary?year=2024&month=8
+//     /api/game-entries/summary?year=2024&month=8&day=15
+router.get("/summary", async (req, res) => {
   try {
-    // -------------------------
-    // 1️⃣ TOTALS BY TYPE (COIN EXPRESSION)
-    //    - freeplay  -> coins (from COIN_AMOUNT_EXPR)
-    //    - redeem    -> coins (from COIN_AMOUNT_EXPR)
-    //    - deposit   -> coins from amountFinal (NOT base money)
-    // -------------------------
+    const year = parseInt(req.query.year, 10);
+    const month = parseInt(req.query.month, 10); // 1–12
+    const day = req.query.day ? parseInt(req.query.day, 10) : NaN; // 1–31 (optional)
+
+    // 1) Build filter using date string "YYYY-MM-DD"
+    let dateFilter = {};
+    if (
+      !Number.isNaN(year) &&
+      !Number.isNaN(month) &&
+      month >= 1 &&
+      month <= 12
+    ) {
+      const mm = String(month).padStart(2, "0");
+
+      // If day is valid -> filter specific day
+      if (!Number.isNaN(day) && day >= 1 && day <= 31) {
+        const dd = String(day).padStart(2, "0");
+        const targetDate = `${year}-${mm}-${dd}`; // e.g. "2024-08-15"
+        dateFilter = { date: targetDate };
+      } else {
+        // Otherwise filter whole month
+        const prefix = `${year}-${mm}`; // e.g. "2024-08"
+        dateFilter = { date: { $regex: `^${prefix}` } };
+      }
+    }
+
+    // Debug so you can see what’s really happening
+    console.log("SUMMARY query:", req.query);
+    console.log("SUMMARY dateFilter:", JSON.stringify(dateFilter));
+
+    // 2) Totals by type (coins)
     const byType = await GameEntry.aggregate([
+      { $match: dateFilter },
       {
         $group: {
           _id: "$type",
           totalAmount: {
             $sum: {
               $cond: [
-                // 🔹 For deposit, use amountFinal (total coins given)
+                // deposit uses amountFinal (coins)
                 { $eq: ["$type", "deposit"] },
                 { $ifNull: ["$amountFinal", 0] },
 
-                // 🔹 For freeplay & redeem, use your existing coin expression
-                COIN_AMOUNT_EXPR,
+                // freeplay + redeem use amountFinal/amount
+                {
+                  $ifNull: ["$amountFinal", { $ifNull: ["$amount", 0] }],
+                },
               ],
             },
           },
@@ -422,7 +470,7 @@ router.get("/summary", async (_req, res) => {
     ]);
 
     let totalFreeplay = 0;
-    let totalDeposit = 0; // in COINS (from amountFinal)
+    let totalDeposit = 0;
     let totalRedeem = 0;
 
     for (const t of byType) {
@@ -431,30 +479,23 @@ router.get("/summary", async (_req, res) => {
       if (t._id === "redeem") totalRedeem = t.totalAmount || 0;
     }
 
-    // ✅ net total coins after freeplay + deposit + redeem
-    //    redeem adds, freeplay & deposit subtract
     const totalCoin = totalRedeem - (totalFreeplay + totalDeposit);
 
-    // -------------------------
-    // 2️⃣ TOTAL PENDING
-    // -------------------------
+    // 3) Pending
     const [pendingAgg] = await GameEntry.aggregate([
-      { $match: { isPending: true } },
+      { $match: { isPending: true, ...dateFilter } },
       {
         $group: {
           _id: null,
-          totalPendingRemainingPay: {
-            $sum: { $ifNull: ["$remainingPay", 0] },
-          },
+          totalPendingRemainingPay: { $sum: { $ifNull: ["$remainingPay", 0] } },
           totalPendingCount: { $sum: 1 },
         },
       },
     ]);
 
-    // -------------------------
-    // 3️⃣ REDUCTION + EXTRA MONEY
-    // -------------------------
+    // 4) Reduction + extra money
     const [extraAgg] = await GameEntry.aggregate([
+      { $match: dateFilter },
       {
         $group: {
           _id: null,
@@ -464,25 +505,21 @@ router.get("/summary", async (_req, res) => {
       },
     ]);
 
-    // -------------------------
-    // 4️⃣ REVENUE BY DEPOSIT METHOD (amountBase only)
-    //    -> REAL MONEY (NOT COINS)
-    // -------------------------
+    // 5) Real-money revenue per method
     const depositByMethod = await GameEntry.aggregate([
-      { $match: { type: "deposit" } },
+      { $match: { type: "deposit", ...dateFilter } },
       {
         $group: {
           _id: "$method",
-          // 💰 use amountBase for revenue
           totalAmount: { $sum: { $ifNull: ["$amountBase", 0] } },
         },
       },
     ]);
 
-    let revenueCashApp = 0;
-    let revenuePayPal = 0;
-    let revenueChime = 0;
-    let revenueVenmo = 0;
+    let revenueCashApp = 0,
+      revenuePayPal = 0,
+      revenueChime = 0,
+      revenueVenmo = 0;
 
     for (const row of depositByMethod) {
       if (row._id === "cashapp") revenueCashApp = row.totalAmount || 0;
@@ -491,57 +528,53 @@ router.get("/summary", async (_req, res) => {
       if (row._id === "venmo") revenueVenmo = row.totalAmount || 0;
     }
 
-    // ✅ total revenue (real money) from all deposit methods (amountBase)
     const totalRevenue =
       revenueCashApp + revenuePayPal + revenueChime + revenueVenmo;
 
-    // -------------------------
-    // 5️⃣ FINAL RESPONSE
-    // -------------------------
     res.json({
-      // 🔹 Coin stats (all in COINS)
-      totalFreeplay, // coins used in freeplay
-      totalDeposit, // coins given on deposits (amountFinal)
-      totalRedeem, // coins redeemed back
-      totalCoin, // net coin = redeem - (freeplay + deposit)
-
-      // 🔹 Pending stats
+      totalFreeplay,
+      totalDeposit,
+      totalRedeem,
+      totalCoin,
       totalPendingRemainingPay: pendingAgg?.totalPendingRemainingPay || 0,
       totalPendingCount: pendingAgg?.totalPendingCount || 0,
-
-      // 🔹 Reduction / extra money
       totalReduction: extraAgg?.totalReduction || 0,
       totalExtraMoney: extraAgg?.totalExtraMoney || 0,
-
-      // 🔹 Real-money revenue (amountBase)
       revenueCashApp,
       revenuePayPal,
       revenueChime,
       revenueVenmo,
-      totalRevenue, // 💰 based on amountBase
+      totalRevenue,
     });
   } catch (err) {
     console.error("❌ GET /api/game-entries/summary error:", err);
-    res.status(500).json({ message: "Failed to load game entry summary" });
+    res.status(500).json({ message: "Failed to load summary" });
   }
 });
 
 /**
  * 🔹 GET /api/game-entries/summary-by-game
+ *    → supports ?year=YYYY&month=MM (monthly per-game summary)
  */
 router.get("/summary-by-game", async (req, res) => {
   try {
-    const { username } = req.query;
+    const { username, year, month } = req.query;
 
     const match = {};
     if (username && String(username).trim()) {
       match.username = String(username).trim();
     }
 
+    const createdAtFilter = buildMonthFilter(year, month);
+
+    console.log("📊 /summary-by-game params:", req.query);
+    console.log("📊 /summary-by-game createdAtFilter:", createdAtFilter);
+
     const agg = await GameEntry.aggregate([
       {
         $match: {
           ...match,
+          ...createdAtFilter,
           gameName: { $ne: null },
         },
       },
@@ -706,7 +739,7 @@ router.put("/:id", async (req, res) => {
     await entry.save();
     await recordHistory(entry, "update");
 
-    // ⭐ NEW: adjust Game.totalCoins for update
+    // ⭐ adjust Game.totalCoins for update
     // 1) remove old effect
     const oldDelta = coinEffect(oldType, oldAmtFinal);
     if (oldDelta !== 0) {
@@ -738,7 +771,7 @@ router.delete("/:id", async (req, res) => {
       return res.status(404).json({ message: "Game entry not found" });
     }
 
-    // ⭐ NEW: reverse its effect from totalCoins before delete
+    // ⭐ reverse its effect from totalCoins before delete
     const delta = coinEffect(entry.type, entry.amountFinal);
     if (delta !== 0) {
       await applyGameDelta(entry.gameName, -delta);

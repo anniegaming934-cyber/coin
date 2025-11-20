@@ -34,8 +34,8 @@ interface Game {
   coinsRecharged: number; // editable
   lastRechargeDate?: string;
 
-  // 👇 NEW: comes from /api/games aggregation
-  totalCoins?: number; // net coin for that game (coinsRecharged - freeplay - deposit + redeem)
+  // comes from /api/games aggregation
+  totalCoins?: number; // net coin for that game (backend calc)
 }
 
 interface AdminDashboardProps {
@@ -65,36 +65,65 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
 
   const [signinCount, setSigninCount] = useState(0);
 
-  // 🔹 Summary from /api/game-entries/summary
+  // Summary from /api/game-entries/summary
   const [entrySummary, setEntrySummary] = useState({
     totalCoin: 0,
     totalFreeplay: 0,
     totalDeposit: 0,
     totalRedeem: 0,
     totalPendingRemainingPay: 0,
-    totalPendingCount: 0, // ✅ new
+    totalPendingCount: 0,
     totalReduction: 0,
     totalExtraMoney: 0,
-    revenueCashApp: 0, // ✅ renamed to match API
+    revenueCashApp: 0,
     revenuePayPal: 0,
     revenueChime: 0,
     revenueVenmo: 0,
+    totalRevenue: 0, // real money total from backend
   });
 
+  // Month/year selection
+  const now = new Date();
+
+  // 🔹 Summary month/year/day (for /api/game-entries/summary)
+  const [summaryYear, setSummaryYear] = useState(now.getFullYear());
+  const [summaryMonth, setSummaryMonth] = useState(now.getMonth() + 1); // 1-12
+  const [summaryDay, setSummaryDay] = useState<number | null>(null); // null = all days in that month
+
+  // 🔹 Games month/year (for /api/games)
+  const [year, setYear] = useState(now.getFullYear());
+  const [month, setMonth] = useState(now.getMonth() + 1); // 1-12
+
   // ---------------------------
-  // Load games + payment totals + sign-ins + game-entry summary
+  // Load payment totals + sign-ins once
   // ---------------------------
   useEffect(() => {
-    fetchGames();
     fetchTotals();
     fetchSignins();
-    fetchGameEntrySummary();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ---------------------------
+  // Reload games when games year/month changes
+  // ---------------------------
+  useEffect(() => {
+    fetchGames();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year, month]);
+
+  // ---------------------------
+  // Reload summary when summary year/month/day changes
+  // ---------------------------
+  useEffect(() => {
+    fetchGameEntrySummary(summaryYear, summaryMonth, summaryDay ?? undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [summaryYear, summaryMonth, summaryDay]);
+
   const fetchGames = async () => {
     try {
-      const { data } = await apiClient.get<Game[]>(GAMES_API);
+      const { data } = await apiClient.get<Game[]>(GAMES_API, {
+        params: { year, month },
+      });
 
       if (!Array.isArray(data)) {
         console.error("❌ Expected an array of games, got:", data);
@@ -138,24 +167,36 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
     }
   };
 
-  const fetchGameEntrySummary = async () => {
+  const fetchGameEntrySummary = async (
+    year: number = summaryYear,
+    month: number = summaryMonth,
+    day?: number
+  ) => {
     try {
-      const { data } = await apiClient.get("/api/game-entries/summary");
+      const params: any = { year, month };
+      if (day && day > 0) {
+        params.day = day;
+      }
+
+      const { data } = await apiClient.get("/api/game-entries/summary", {
+        params,
+      });
       setEntrySummary({
         totalCoin: Number(data.totalCoin) || 0,
         totalFreeplay: Number(data.totalFreeplay) || 0,
         totalDeposit: Number(data.totalDeposit) || 0,
         totalRedeem: Number(data.totalRedeem) || 0,
         totalPendingRemainingPay: Number(data.totalPendingRemainingPay) || 0,
-        totalPendingCount: Number(data.totalPendingCount) || 0, // ✅ new
+        totalPendingCount: Number(data.totalPendingCount) || 0,
         totalReduction: Number(data.totalReduction) || 0,
         totalExtraMoney: Number(data.totalExtraMoney) || 0,
-        revenueCashApp: Number(data.revenueCashApp) || 0, // ✅ map from backend
+        revenueCashApp: Number(data.revenueCashApp) || 0,
         revenuePayPal: Number(data.revenuePayPal) || 0,
         revenueChime: Number(data.revenueChime) || 0,
         revenueVenmo: Number(data.revenueVenmo) || 0,
+        totalRevenue: Number(data.totalRevenue) || 0,
       });
-      console.log("das", data);
+      console.log("summary data", data);
     } catch (err) {
       console.error("Failed to load game entry summary:", err);
     }
@@ -169,18 +210,16 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
     (Number(paymentTotals.paypal) || 0) +
     (Number(paymentTotals.chime) || 0);
 
-  // 🔹 Revenue (USD) from GameEntry deposits per method
-  //    backend returns coins → convert to USD using COIN_VALUE
-  const cashappDepositUsd = entrySummary.revenueCashApp; // ✅
-  const paypalDepositUsd = entrySummary.revenuePayPal; // ✅
-  const chimeDepositUsd = entrySummary.revenueChime; // ✅
-  const venmoDepositUsd = entrySummary.revenueVenmo; // ✅
+  // Revenue (USD) from GameEntry deposits per method (backend already gives real money)
+  const cashappDepositUsd = entrySummary.revenueCashApp;
+  const paypalDepositUsd = entrySummary.revenuePayPal;
+  const chimeDepositUsd = entrySummary.revenueChime;
+  const venmoDepositUsd = entrySummary.revenueVenmo;
 
-  // 🔹 Total deposit revenue from GameEntry (all methods)
-  const totalDepositRevenueUsd = entrySummary.totalDeposit;
+  // Total deposit revenue from GameEntry (all methods) in USD
+  const totalDepositRevenueUsd = entrySummary.totalRevenue;
 
-  // 🔹 NEW: Total Coin (all Game Entries) from /api/games (sum of totalCoins)
-  // Net (can be positive or negative)
+  // Total Coin (all Game Entries) from /api/games (sum of totalCoins)
   const totalGameEntriesNet = useMemo(
     () =>
       games.reduce((sum, g) => {
@@ -348,7 +387,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
         cell: ({ row }) => {
           const g = row.original;
 
-          // Prefer backend `totalCoins` if present, otherwise fall back to derived
+          // Prefer backend totalCoins, otherwise fall back to derived
           const derivedNet =
             g.totalCoins ?? g.coinsEarned - (g.coinsSpent + g.coinsRecharged);
 
@@ -468,20 +507,86 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
               {/* Summary table */}
               <div className="w-full mb-8">
                 <div className="flex items-center justify-between mb-2">
-                  <h2 className="text-lg font-semibold text-gray-800">
-                    Summary
-                  </h2>
-                  <button
-                    onClick={() => {
-                      fetchGames();
-                      fetchTotals();
-                      fetchSignins();
-                      fetchGameEntrySummary();
-                    }}
-                    className="text-xs px-3 py-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
-                  >
-                    Refresh
-                  </button>
+                  <div className="flex flex-col gap-1">
+                    <h2 className="text-lg font-semibold text-gray-800">
+                      Summary ({summaryYear}-
+                      {String(summaryMonth).padStart(2, "0")}
+                      {summaryDay
+                        ? `-${String(summaryDay).padStart(2, "0")}`
+                        : ""}
+                      )
+                    </h2>
+                    <span className="text-[11px] text-slate-500">
+                      Showing game entries for selected{" "}
+                      {summaryDay ? "day" : "month"}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {/* Summary month selector */}
+                    <select
+                      className="border text-xs rounded px-2 py-1 bg-white"
+                      value={summaryMonth}
+                      onChange={(e) => {
+                        const m = Number(e.target.value);
+                        setSummaryMonth(m);
+                        // keep games in sync with summary
+                        setMonth(m);
+                      }}
+                    >
+                      {Array.from({ length: 12 }).map((_, i) => (
+                        <option key={i + 1} value={i + 1}>
+                          {i + 1}
+                        </option>
+                      ))}
+                    </select>
+
+                    {/* Summary day selector */}
+                    <select
+                      className="border text-xs rounded px-2 py-1 bg-white"
+                      value={summaryDay ?? ""}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSummaryDay(val === "" ? null : Number(val));
+                      }}
+                    >
+                      <option value="">All Days</option>
+                      {Array.from({ length: 31 }).map((_, i) => (
+                        <option key={i + 1} value={i + 1}>
+                          {i + 1}
+                        </option>
+                      ))}
+                    </select>
+
+                    {/* Summary year input */}
+                    <input
+                      type="number"
+                      className="border text-xs rounded px-2 py-1 w-20 bg-white"
+                      value={summaryYear}
+                      onChange={(e) => {
+                        const y = Number(e.target.value);
+                        setSummaryYear(y);
+                        // keep games in sync with summary
+                        setYear(y);
+                      }}
+                    />
+
+                    <button
+                      onClick={() => {
+                        fetchTotals();
+                        fetchSignins();
+                        fetchGameEntrySummary(
+                          summaryYear,
+                          summaryMonth,
+                          summaryDay ?? undefined
+                        );
+                        fetchGames();
+                      }}
+                      className="text-xs px-3 py-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
+                    >
+                      Refresh
+                    </button>
+                  </div>
                 </div>
 
                 <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
@@ -576,7 +681,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
                         </td>
                       </tr>
 
-                      {/* Optional: show how many pending entries */}
+                      {/* Pending entries count */}
                       <tr>
                         <td className="px-4 py-2 text-gray-700">
                           Pending Entries Count
@@ -653,6 +758,39 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
               <div className="mb-6">
                 <AddGameForm onGameAdded={fetchGames} />
               </div>
+
+              {/* Games month/year controls */}
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-3 text-sm">
+                  <span className="text-gray-700">Games Period:</span>
+                  <select
+                    className="border text-xs rounded px-2 py-1 bg-white"
+                    value={month}
+                    onChange={(e) => setMonth(Number(e.target.value))}
+                  >
+                    {Array.from({ length: 12 }).map((_, i) => (
+                      <option key={i + 1} value={i + 1}>
+                        {i + 1}
+                      </option>
+                    ))}
+                  </select>
+
+                  <input
+                    type="number"
+                    className="border text-xs rounded px-2 py-1 w-20 bg-white"
+                    value={year}
+                    onChange={(e) => setYear(Number(e.target.value))}
+                  />
+                </div>
+
+                <button
+                  onClick={fetchGames}
+                  className="text-xs px-3 py-1 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
+                >
+                  Refresh Games
+                </button>
+              </div>
+
               <div className="mt-4 overflow-hidden rounded-lg border border-gray-200 shadow-sm bg-white p-2">
                 <DataTable columns={gameColumns} data={games} />
               </div>
@@ -703,6 +841,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
           {activeSection === "employeeSalary" && <SalaryForm />}
           {activeSection === "gameLogins" && <GameLogins />}
           {activeSection === "schedule" && <ScheduleForm />}
+
           {/* SETTINGS TAB */}
           {activeSection === "settings" && (
             <div className="text-sm text-gray-600">

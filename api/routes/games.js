@@ -14,40 +14,67 @@ const router = express.Router();
  *
  * Routes:
  *   GET    /api/games                 -> with ?q= returns string[] (names), else enriched Game[]
+ *                                       optional ?year=YYYY&month=MM filters GameEntry totals by month
  *   POST   /api/games
  *   PUT    /api/games/:id
  *   DELETE /api/games/:id
  *   POST   /api/games/:id/add-moves   -> logs UserActivity only
  *   POST   /api/games/:id/reset-recharge
  */
-
-// GET /api/games  (names suggest when ?q= provided; else full list)
 router.get("/games", async (req, res) => {
   try {
     await connectDB();
 
     const q = (req.query.q || "").toString().trim();
 
-    // If searching -> return names only
+    // Monthly filtering params
+    const year = Number(req.query.year);
+    const month = Number(req.query.month);
+
+    let dateFilter = {};
+
+    // 👉 Apply month filter ONLY if both are valid
+    if (
+      Number.isFinite(year) &&
+      Number.isFinite(month) &&
+      month >= 1 &&
+      month <= 12
+    ) {
+      const mm = String(month).padStart(2, "0");
+      const prefix = `${year}-${mm}`; // YYYY-MM
+
+      // filter by GameEntry.date ("YYYY-MM-DD")
+      dateFilter = { date: { $regex: `^${prefix}` } };
+
+      console.log("🎯 Games monthly filter:", dateFilter);
+    } else {
+      console.log("➡️ No monthly filter used");
+    }
+
+    // If searching → return names only
     if (q) {
       const filter = { name: { $regex: q, $options: "i" } };
       const names = await Game.distinct("name", filter);
-      const sorted = names
-        .filter((n) => typeof n === "string" && n.trim().length > 0)
-        .sort((a, b) => a.localeCompare(b));
-      return res.json(sorted);
+
+      return res.json(
+        names
+          .filter((n) => typeof n === "string" && n.trim().length > 0)
+          .sort((a, b) => a.localeCompare(b))
+      );
     }
 
-    // 1) Load all games
+    // Get all games
     const games = await Game.find({}).sort({ createdAt: 1 }).lean();
+    const gameNames = games.map((g) => g.name);
 
-    const gameNames = games
-      .map((g) => g.name)
-      .filter((n) => typeof n === "string" && n.trim().length > 0);
-
-    // 2) Aggregate GameEntry totals for each game
+    // Aggregate GameEntry totals for these games (filtered by month if applied)
     const totals = await GameEntry.aggregate([
-      { $match: { gameName: { $in: gameNames } } },
+      {
+        $match: {
+          gameName: { $in: gameNames },
+          ...dateFilter,
+        },
+      },
       {
         $group: {
           _id: "$gameName",
@@ -85,13 +112,13 @@ router.get("/games", async (req, res) => {
     const totalsByGame = {};
     for (const t of totals) {
       totalsByGame[t._id] = {
-        freeplay: t.freeplay || 0,
-        deposit: t.deposit || 0,
-        redeem: t.redeem || 0,
+        freeplay: t.freeplay ?? 0,
+        deposit: t.deposit ?? 0,
+        redeem: t.redeem ?? 0,
       };
     }
 
-    // 3) Merge totals + compute totalCoins (recharge + redeem - deposit - freeplay)
+    // Merge totals into game objects
     const enriched = games.map((g) => {
       const s = totalsByGame[g.name] || {
         freeplay: 0,
@@ -99,21 +126,10 @@ router.get("/games", async (req, res) => {
         redeem: 0,
       };
 
-      // Make sure this is a safe number
       const coinsRecharged = Number(g.coinsRecharged) || 0;
 
-      // Step 1: start from recharge
-      let totalCoins = coinsRecharged;
-
-      // Step 2: add redeem
-      totalCoins += s.redeem;
-
-      // Step 3: subtract deposit
-      totalCoins -= s.deposit;
-      if (totalCoins < 0) totalCoins = 0;
-
-      // Step 4: subtract freeplay from remaining
-      totalCoins -= s.freeplay;
+      // totalCoins = redeemed – deposit – freeplay + recharge
+      let totalCoins = coinsRecharged + s.redeem - s.deposit - s.freeplay;
       if (totalCoins < 0) totalCoins = 0;
 
       return {
@@ -241,7 +257,7 @@ router.post("/games/:id/add-moves", async (req, res) => {
     const redeem = safeNum(redeemDelta);
     const deposit = safeNum(depositDelta);
 
-    // 🔹 We NO LONGER change any game.coinsXXX here, because
+    // We NO LONGER change any game.coinsXXX here, because
     // totals are computed from GameEntry + coinsRecharged.
 
     // Update last recharge date only if there was a deposit

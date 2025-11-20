@@ -4,6 +4,15 @@ import mongoose from "mongoose";
 export const ALLOWED_TYPES = ["freeplay", "deposit", "redeem"];
 export const ALLOWED_METHODS = ["cashapp", "paypal", "chime", "venmo"];
 
+/**
+ * For aggregations:
+ * Prefer amountFinal, then amount, then 0
+ * Used in summary / summary-by-game routes.
+ */
+export const COIN_AMOUNT_EXPR = {
+  $ifNull: ["$amountFinal", { $ifNull: ["$amount", 0] }],
+};
+
 const gameEntrySchema = new mongoose.Schema(
   {
     // 👤 who is logged in / owner of this entry
@@ -49,7 +58,7 @@ const gameEntrySchema = new mongoose.Schema(
 
     note: { type: String, default: "", trim: true },
 
-    // stored as "YYYY-MM-DD" from frontend
+    // stored as "YYYY-MM-DD" from frontend (for display / simple filters)
     date: { type: String },
 
     // 💸 Our-tag redeem tracking:
@@ -79,6 +88,8 @@ const gameEntrySchema = new mongoose.Schema(
 // Helpful indexes for dashboard queries
 gameEntrySchema.index({ username: 1, date: 1, type: 1 });
 gameEntrySchema.index({ playerTag: 1, date: 1 });
+// used by monthly summary + summary-by-game (we filter on createdAt)
+gameEntrySchema.index({ gameName: 1, type: 1, createdAt: -1 });
 gameEntrySchema.index({ createdAt: -1 });
 
 const GameEntry =
