@@ -13,10 +13,12 @@ export interface UserSummary {
   totalFreeplay: number;
   totalDeposit: number;
   totalRedeem: number;
+
+  // ⬇️ add this if backend sends it
+  isAdmin?: boolean;
 }
 
 export interface UserAdminTableProps {
-  // we pass *username* up so AdminDashboard can show history by username
   onViewHistory: (username: string) => void;
 }
 
@@ -37,7 +39,21 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ onViewHistory }) => {
     setError("");
     try {
       const { data } = await apiClient.get<UserSummary[]>("/api/admin/users");
-      setUsers(Array.isArray(data) ? data : []);
+
+      const safeData = Array.isArray(data) ? data : [];
+
+      // 🔥 FILTER OUT ADMIN LOGINS HERE
+      const filtered = safeData.filter((u) => {
+        // if backend has isAdmin flag
+        if (u.isAdmin) return false;
+
+        // extra safety: hide username "admin"
+        if (u.username && u.username.toLowerCase() === "admin") return false;
+
+        return true;
+      });
+
+      setUsers(filtered);
     } catch (e) {
       console.error("Failed to load users:", e);
       setError("Failed to load users.");
@@ -128,7 +144,6 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ onViewHistory }) => {
         data={users}
         isLoading={loading}
         emptyMessage="No users found."
-        // Click row → open history for that username
         onRowClick={(user) => {
           if (user.username) onViewHistory(user.username);
         }}

@@ -46,11 +46,7 @@ const ScheduleForm: React.FC = () => {
         setLoadingUsers(true);
         setUserError("");
 
-        // 👉 adjust URL according to your backend route
-        // e.g. "/users/summary" or "/admin/users"
         const res = await apiClient.get("/api/admin/users");
-
-        // Expecting array like [{ username: "user1", ... }, ...]
         setUserOptions(res.data || []);
       } catch (err) {
         console.error("Failed to load usernames", err);
@@ -78,7 +74,6 @@ const ScheduleForm: React.FC = () => {
     if (!username || !title.trim() || !startTime || !endTime) return;
 
     if (editingId !== null) {
-      // update existing
       setItems((prev) =>
         prev.map((item) =>
           item.id === editingId
@@ -87,7 +82,6 @@ const ScheduleForm: React.FC = () => {
         )
       );
     } else {
-      // add new
       const newItem: ScheduleItem = {
         id: Date.now(),
         username,
@@ -115,6 +109,19 @@ const ScheduleForm: React.FC = () => {
     setItems((prev) => prev.filter((item) => item.id !== id));
     if (editingId === id) resetForm();
   };
+
+  // 🔹 Sort & group items by day then time
+  const sortedItems = items.slice().sort((a, b) => {
+    const dayDiff = days.indexOf(a.day) - days.indexOf(b.day);
+    if (dayDiff !== 0) return dayDiff;
+    return a.startTime.localeCompare(b.startTime);
+  });
+
+  const groupedByDay: Record<string, ScheduleItem[]> = {};
+  sortedItems.forEach((item) => {
+    if (!groupedByDay[item.day]) groupedByDay[item.day] = [];
+    groupedByDay[item.day].push(item);
+  });
 
   return (
     <div className="max-w-8xl mx-auto p-4 space-y-6">
@@ -226,50 +233,66 @@ const ScheduleForm: React.FC = () => {
           <thead className="bg-gray-100">
             <tr>
               <th className="text-left px-3 py-2">Username</th>
-              <th className="text-left px-3 py-2">Day</th>
               <th className="text-left px-3 py-2">Time</th>
               <th className="text-left px-3 py-2">Task</th>
               <th className="text-right px-3 py-2">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {items.length === 0 && (
+            {sortedItems.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-3 py-4 text-center text-gray-500">
+                <td colSpan={4} className="px-3 py-4 text-center text-gray-500">
                   No schedule items yet. Add one above.
                 </td>
               </tr>
             )}
 
-            {items
-              .slice()
-              .sort((a, b) => a.day.localeCompare(b.day))
-              .map((item) => (
-                <tr key={item.id} className="border-t">
-                  <td className="px-3 py-2">{item.username}</td>
-                  <td className="px-3 py-2">{item.day}</td>
-                  <td className="px-3 py-2">
-                    {item.startTime} - {item.endTime}
-                  </td>
-                  <td className="px-3 py-2">{item.title}</td>
-                  <td className="px-3 py-2 text-right space-x-2">
-                    <button
-                      type="button"
-                      onClick={() => handleEdit(item)}
-                      className="px-2 py-1 text-xs rounded-md border"
+            {/* 🔹 Grouped by day */}
+            {days.map((d) => {
+              const dayItems = groupedByDay[d];
+              if (!dayItems || dayItems.length === 0) return null;
+
+              return (
+                <React.Fragment key={d}>
+                  {/* Day row */}
+                  <tr className="bg-gray-50">
+                    <td
+                      colSpan={4}
+                      className="px-3 py-2 font-semibold text-gray-800"
                     >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(item.id)}
-                      className="px-2 py-1 text-xs rounded-md border"
-                    >
-                      Delete
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                      {d}
+                    </td>
+                  </tr>
+
+                  {/* Rows for that day */}
+                  {dayItems.map((item) => (
+                    <tr key={item.id} className="border-t">
+                      <td className="px-3 py-2">{item.username}</td>
+                      <td className="px-3 py-2">
+                        {item.startTime} - {item.endTime}
+                      </td>
+                      <td className="px-3 py-2">{item.title}</td>
+                      <td className="px-3 py-2 text-right space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => handleEdit(item)}
+                          className="px-2 py-1 text-xs rounded-md border"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(item.id)}
+                          className="px-2 py-1 text-xs rounded-md border"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </React.Fragment>
+              );
+            })}
           </tbody>
         </table>
       </div>
