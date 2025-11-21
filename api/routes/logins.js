@@ -111,6 +111,7 @@ router.get("/", async (req, res) => {
     const formatted = sessions.map((s) => ({
       _id: String(s._id),
       username: s.username,
+      email: s.email || null, // <--- ADDED HERE
       signInAt: s.signInAt ? new Date(s.signInAt).toISOString() : null,
       signOutAt: s.signOutAt ? new Date(s.signOutAt).toISOString() : null,
       createdAt:
@@ -138,6 +139,7 @@ router.get("/", async (req, res) => {
       .json({ message: "Failed to load sessions", error: err.message });
   }
 });
+
 router.get("/:username", async (req, res) => {
   try {
     const { username } = req.params;
@@ -177,5 +179,31 @@ router.get("/:username", async (req, res) => {
       .json({ message: "Failed to load user session", error: err.message });
   }
 });
+router.delete("/user/:username", async (req, res) => {
+  try {
+    const { username } = req.params;
+    if (!username) {
+      return res.status(400).json({ message: "Username is required" });
+    }
 
+    const result = await LoginSession.deleteMany({ username });
+
+    console.log(
+      `🗑️ DELETE /api/logins/user/${username} -> deleted count:`,
+      result.deletedCount
+    );
+
+    res.json({
+      message: "User login activity deleted",
+      username,
+      deletedCount: result.deletedCount,
+    });
+  } catch (err) {
+    console.error("Error deleting user login activity:", err);
+    res.status(500).json({
+      message: "Failed to delete user login activity",
+      error: err.message,
+    });
+  }
+});
 export default router;

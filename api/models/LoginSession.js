@@ -17,6 +17,7 @@ const LoginSessionSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    email: String, // <-- Make sure this exists
   },
   {
     timestamps: true, // adds createdAt, updatedAt

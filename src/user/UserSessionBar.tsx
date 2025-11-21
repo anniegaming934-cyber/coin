@@ -5,6 +5,7 @@ import { apiClient } from "../apiConfig";
 
 interface UserSessionBarProps {
   username: string;
+  email?: string; // ✅ added
   onLogout: () => void;
 }
 
@@ -12,6 +13,7 @@ const LOGIN_API_BASE = "/api/logins";
 
 const UserSessionBar: React.FC<UserSessionBarProps> = ({
   username,
+  email,
   onLogout,
 }) => {
   const [now, setNow] = useState(new Date());
@@ -39,14 +41,20 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
         sessionId?: string;
         signInAt?: string;
         user?: string;
+        email?: string;
       };
 
       const storedUser = parsed.user;
       const storedSignInAt = parsed.signInAt;
       const storedId = parsed.id || parsed.sessionId || null;
+      const storedEmail = parsed.email;
 
       // Only restore if this session belongs to this username
-      if (storedUser === username && storedSignInAt) {
+      // and (if email exists) to this email too
+      const sameUser = storedUser === username;
+      const sameEmail = !email || storedEmail === email;
+
+      if (sameUser && sameEmail && storedSignInAt) {
         setSessionId(storedId);
         setSignInDateTime(new Date(storedSignInAt));
         setIsSignedIn(true);
@@ -54,7 +62,7 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
     } catch {
       localStorage.removeItem("userSession");
     }
-  }, [username]);
+  }, [username, email]);
 
   const formattedTime = now.toLocaleTimeString([], {
     hour: "2-digit",
@@ -94,6 +102,7 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
 
       const { data } = await apiClient.post(`${LOGIN_API_BASE}/start`, {
         username,
+        email, // ✅ send email to backend
         signInAt,
       });
 
@@ -106,6 +115,7 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
         sessionId: id || null,
         signInAt,
         user: username,
+        email: email || null, // ✅ store email in localStorage
       };
 
       localStorage.setItem("userSession", JSON.stringify(sessionData));
@@ -194,20 +204,27 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
           {/* CENTER: Info */}
           <div className="flex-1 flex justify-center">
             {isSignedIn && signInTimeStr && signInDateStr ? (
-              <div className="flex flex-wrap items-center gap-2 text-[11px] sm:text-xs text-slate-600">
-                <div className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold">
-                  <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  Since{" "}
-                  <span className="font-bold text-emerald-700">
-                    {signInTimeStr}
+              <div className="flex flex-col items-center gap-1 text-[11px] sm:text-xs text-slate-600">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold">
+                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    Since{" "}
+                    <span className="font-bold text-emerald-700">
+                      {signInTimeStr}
+                    </span>
+                  </div>
+                  <span className="text-slate-500">
+                    <span className="font-semibold text-slate-700">
+                      {username}
+                    </span>{" "}
+                    signed in on {signInDateStr}
                   </span>
                 </div>
-                <span className="text-slate-500">
-                  <span className="font-semibold text-slate-700">
-                    {username}
-                  </span>{" "}
-                  signed in on {signInDateStr}
-                </span>
+                {email && (
+                  <span className="text-[10px] text-slate-500">
+                    Email: <span className="font-medium">{email}</span>
+                  </span>
+                )}
               </div>
             ) : (
               <span className="text-[11px] sm:text-xs text-slate-500">
@@ -252,8 +269,15 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
             </h2>
             <p className="text-xs text-slate-500 mb-4">
               You are currently signed in as{" "}
-              <span className="font-semibold text-slate-800">{username}</span>.
-              Your work log for this session will be closed after you sign out.
+              <span className="font-semibold text-slate-800">{username}</span>
+              {email && (
+                <>
+                  {" "}
+                  (<span className="text-slate-700">{email}</span>)
+                </>
+              )}
+              . Your work log for this session will be closed after you sign
+              out.
             </p>
 
             <div className="flex justify-end gap-2 mt-2">

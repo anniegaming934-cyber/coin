@@ -24,10 +24,15 @@ const GAME_ENTRIES_API = "/api/game-entries";
 
 interface UserDashboardProps {
   username: string;
+  email?: string; // ✅ allow passing email from parent
   onLogout: () => void;
 }
 
-const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
+const UserDashboard: FC<UserDashboardProps> = ({
+  username,
+  email,
+  onLogout,
+}) => {
   const [games, setGames] = useState<Game[]>([]);
   const [activeSection, setActiveSection] =
     useState<SidebarSection>("overview");
@@ -106,7 +111,11 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
 
       {/* RIGHT: Main area */}
       <div className="flex-1 flex flex-col">
-        <UserSessionBar username={username} onLogout={onLogout} />
+        <UserSessionBar
+          username={username}
+          email={email} // ✅ use prop, no `user` variable
+          onLogout={onLogout}
+        />
 
         <header className="flex flex-wrap items-center gap-3 px-4 sm:px-8 py-4 border-b bg-white">
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">
@@ -136,7 +145,6 @@ const UserDashboard: FC<UserDashboardProps> = ({ username, onLogout }) => {
           {/* GAME ENTRIES / PAYMENTS COMBINED TAB */}
           {activeSection === "gameEntries" && (
             <div className="mt-4">
-              {/* ⭐ Pass username here as well */}
               <PaymentCombinedTable username={username} />
             </div>
           )}
