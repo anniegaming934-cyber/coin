@@ -71,12 +71,16 @@ async function requireAuth(req, res, next) {
 router.post("/register", async (req, res) => {
   try {
     const { name, email, password, username } = req.body;
-    if (!email || !password) {
+
+    // 🔹 Trim only, NO lowercasing → keep exact user case
+    const rawEmail = (email || "").trim();
+
+    if (!rawEmail || !password) {
       return res.status(400).json({ message: "Email and password required" });
     }
 
-    const normalizedEmail = email.toLowerCase().trim();
-    const existing = await User.findOne({ email: normalizedEmail });
+    // ✅ Case-sensitive uniqueness: same case must not exist
+    const existing = await User.findOne({ email: rawEmail });
     if (existing) {
       return res.status(409).json({ message: "User already exists" });
     }
@@ -84,9 +88,9 @@ router.post("/register", async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const user = await User.create({
-      username: username || normalizedEmail.split("@")[0],
+      username: username || rawEmail.split("@")[0],
       name: name || "User",
-      email: normalizedEmail,
+      email: rawEmail, // 🔹 store as typed (with case)
       passwordHash,
       role: "user",
       isAdmin: false,
@@ -106,15 +110,26 @@ router.post("/register", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body || {};
-    if (!email || !password) {
+
+    // 🔹 Same: trim only, keep case
+    const rawEmail = (email || "").trim();
+
+    if (!rawEmail || !password) {
       return res.status(400).json({ message: "Email and password required" });
     }
 
-    const normalizedEmail = email.toLowerCase().trim();
-    const user = await User.findOne({ email: normalizedEmail });
+    // 🔥 CASE-SENSITIVE lookup: Mongo string match is case-sensitive by default
+    const user = await User.findOne({ email: rawEmail });
 
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    // (Optional extra strict check – redundant, but explicit)
+    if (user.email !== rawEmail) {
+      return res
+        .status(401)
+        .json({ message: "Email case does not match our records" });
     }
 
     const ok = await bcrypt.compare(password, user.passwordHash || "");
@@ -139,7 +154,7 @@ router.post("/login", async (req, res) => {
       user: {
         id: user._id,
         name: user.name,
-        email: user.email,
+        email: user.email, // 👈 this is the canonical, case-sensitive value
         username: user.username,
         role: user.role,
         isAdmin: user.isAdmin,

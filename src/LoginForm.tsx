@@ -20,16 +20,20 @@ const LoginForm: React.FC<LoginFormProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [showModal, setShowModal] = useState(false);
+  const [modalMessage, setModalMessage] = useState(""); // 👈 new
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError("");
+    setModalMessage("");
 
     try {
+      const trimmedEmail = email.trim(); // keep case, just remove spaces
+
       const { data } = await apiClient.post(
         "/api/auth/login",
-        { email, password },
+        { email: trimmedEmail, password },
         { headers: { "Content-Type": "application/json" } }
       );
 
@@ -41,7 +45,7 @@ const LoginForm: React.FC<LoginFormProps> = ({
 
       const role: "admin" | "user" = isAdmin ? "admin" : "user";
 
-      const username = data.user?.name || email.split("@")[0] || "User";
+      const username = data.user?.name || trimmedEmail.split("@")[0] || "User";
 
       // ✅ Let AuthContext handle persistence (username, token, role)
       login({
@@ -55,24 +59,41 @@ const LoginForm: React.FC<LoginFormProps> = ({
       if (data.user?.email) {
         localStorage.setItem("userEmail", data.user.email);
       } else {
-        localStorage.setItem("userEmail", email);
+        localStorage.setItem("userEmail", trimmedEmail);
       }
 
       onSuccess(username);
     } catch (err) {
       const axiosErr = err as AxiosError<any>;
+      const rawMessage = axiosErr.response?.data?.message as string | undefined;
+
       const message =
-        axiosErr.response?.data?.message ||
+        rawMessage ||
         `Login failed (${axiosErr.response?.status ?? "unknown"}).`;
 
       console.error("❌ Login failed:", message);
 
+      const lower = message.toLowerCase();
+
+      // 🔐 Treat all 401 / invalid / case mismatch as modal-type errors
       if (
-        message.toLowerCase().includes("invalid") ||
-        axiosErr.response?.status === 401
+        axiosErr.response?.status === 401 ||
+        lower.includes("invalid credentials") ||
+        lower.includes("email case does not match")
       ) {
+        // Show a more user-friendly message, but preserve case-mismatch info
+        if (lower.includes("email case does not match")) {
+          setModalMessage(
+            "Email is case-sensitive. Please enter it exactly as you registered (including capital and small letters)."
+          );
+        } else {
+          setModalMessage(
+            "Your email or password didn’t match our records. Please try again."
+          );
+        }
         setShowModal(true);
       } else {
+        // Other server/unknown errors → show inline
         setError(message);
       }
     } finally {
@@ -89,7 +110,10 @@ const LoginForm: React.FC<LoginFormProps> = ({
 
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">
-            Email
+            Email{" "}
+            <span className="text-[11px] text-slate-500">
+              (case-sensitive, use same capital/small letters)
+            </span>
           </label>
           <input
             type="email"
@@ -169,7 +193,8 @@ const LoginForm: React.FC<LoginFormProps> = ({
               Login Failed
             </h3>
             <p className="text-sm text-slate-700 mb-4">
-              Your email or password didn’t match our records. Please try again.
+              {modalMessage ||
+                "Your email or password didn’t match our records. Please try again."}
             </p>
             <button
               onClick={() => setShowModal(false)}
