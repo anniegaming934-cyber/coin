@@ -55,9 +55,11 @@ function coinEffect(type, amountFinal) {
   const amt = Number(amountFinal);
   if (!Number.isFinite(amt) || amt <= 0) return 0;
 
-  // freeplay + deposit → minus
-  // redeem            → plus
-  if (type === "deposit" || type === "freeplay") return -amt;
+  // freeplay + playedgame + deposit → minus
+  // redeem                         → plus
+  if (type === "deposit" || type === "freeplay" || type === "playedgame") {
+    return -amt;
+  }
   if (type === "redeem") return amt;
   return 0;
 }
@@ -242,18 +244,105 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ message: "Invalid amountFinal" });
     }
 
+    const cleanUsername = String(username).trim();
+    const cleanCreatedBy = String(createdBy).trim();
+    const cleanGameName = String(gameName).trim();
+    const cleanPlayerTag = String(playerTag || "").trim();
+    const numericReduction = toNumber(reduction, 0);
+    const incomingAmount = amount != null ? toNumber(amount, 0) : final;
+    const incomingTotalCashout = toNumber(totalCashout, 0);
+    const incomingExtraMoney = toNumber(extraMoney, 0);
+
+    /**
+     * ⭐ SPECIAL CASE: Player Tag deposit with reduction
+     * If this is a player-tag deposit AND we have a positive reduction,
+     * merge into an existing deposit row for the same username + playerTag
+     * instead of creating a brand new entry.
+     *
+     * New reduction will be recalculated as:
+     *    reduction = max(totalCashout - totalDeposit, 0)
+     */
+    if (type === "deposit" && cleanPlayerTag && numericReduction > 0) {
+      // Find the latest deposit entry for this user + tag
+      const existing = await GameEntry.findOne({
+        username: cleanUsername,
+        playerTag: cleanPlayerTag,
+        type: "deposit",
+      }).sort({ createdAt: -1 });
+
+      if (existing) {
+        // Snapshot old values for coin delta
+        const oldType = existing.type;
+        const oldAmtFinal = Number(existing.amountFinal || 0);
+        const oldGameName = existing.gameName;
+
+        // Merge numeric fields (treat incoming values as additional deposit)
+        existing.amountBase = toNumber(existing.amountBase, 0) + base;
+        existing.amount = toNumber(existing.amount, 0) + incomingAmount;
+        existing.amountFinal = oldAmtFinal + final;
+
+        // For player-tag reduction, totalCashout represents the *original* cashout.
+        // We normally DO NOT add incomingTotalCashout (because UI sends "pending").
+        if (!existing.totalCashout || existing.totalCashout === 0) {
+          // Only set once if it's empty.
+          existing.totalCashout = incomingTotalCashout;
+        }
+
+        // Extra money accumulates
+        existing.extraMoney =
+          toNumber(existing.extraMoney, 0) + incomingExtraMoney;
+
+        // Optional fields: only overwrite if new values are provided
+        if (playerName !== undefined) {
+          existing.playerName = playerName || "";
+        }
+        if (note !== undefined) {
+          existing.note = note || "";
+        }
+        if (date !== undefined) {
+          existing.date = normalizeDateString(date);
+        }
+
+        // 🔸 Recalculate reduction from merged totals:
+        //     reduction = max(totalCashout - totalDeposit, 0)
+        const totalDepositMerged = toNumber(existing.amountFinal, 0);
+        const totalCashoutMerged = toNumber(existing.totalCashout, 0);
+        const recalculatedReduction = totalCashoutMerged - totalDepositMerged;
+
+        existing.reduction =
+          recalculatedReduction > 0 ? recalculatedReduction : 0;
+
+        // ⭐ If reduction reached 0 → auto clear pending flag
+        existing.isPending = existing.reduction > 0;
+
+        await existing.save();
+        await recordHistory(existing, "update-merge");
+
+        // ⭐ Adjust Game.totalCoins by the difference only
+        const oldDelta = coinEffect(oldType, oldAmtFinal);
+        const newDelta = coinEffect(existing.type, existing.amountFinal);
+        const diffDelta = newDelta - oldDelta;
+        if (diffDelta !== 0) {
+          await applyGameDelta(existing.gameName, diffDelta);
+        }
+
+        return res.status(200).json(existing);
+      }
+    }
+
+    // 🔹 DEFAULT: create new entry
     const doc = await GameEntry.create({
-      username: String(username).trim(),
-      createdBy: String(createdBy).trim(),
+      username: cleanUsername,
+      createdBy: cleanCreatedBy,
       type,
       method: method || undefined,
 
       playerName: playerName || "",
-      playerTag: playerTag || "",
-      gameName: String(gameName).trim(),
+      playerTag: cleanPlayerTag,
+      gameName: cleanGameName,
 
       amountBase: base,
-      amount: amount != null ? toNumber(amount, 0) : final,
+      amount: incomingAmount,
       bonusRate: toNumber(bonusRate, 0),
       bonusAmount: toNumber(bonusAmount, 0),
       amountFinal: final,
@@ -262,10 +351,10 @@ router.post("/", async (req, res) => {
       note: note || "",
 
       totalPaid: toNumber(totalPaid, 0),
-      totalCashout: toNumber(totalCashout, 0),
+      totalCashout: incomingTotalCashout,
       remainingPay: toNumber(remainingPay, 0),
-      extraMoney: toNumber(extraMoney, 0),
-      reduction: toNumber(reduction, 0),
+      extraMoney: incomingExtraMoney,
+      reduction: numericReduction,
       isPending: Boolean(isPending),
     });
 
@@ -286,34 +375,59 @@ router.post("/", async (req, res) => {
 
 /**
  * 🔹 GET /api/game-entries/pending
+ * Shows only the LATEST pending row per (username + playerTag):
+ *   - redeem (our tag) with isPending = true
+ *   - deposit (player tag) with reduction > 0
  */
 router.get("/pending", async (req, res) => {
   try {
     const { username } = req.query;
 
-    // base filter: only pending redeems
-    const filter = {
-      type: "redeem",
-      isPending: true,
+    const match = {
+      $or: [
+        { type: "redeem", isPending: true },
+        { type: "deposit", reduction: { $gt: 0 } },
+      ],
     };
 
-    // optional username filter
     if (username && String(username).trim()) {
-      filter.username = String(username).trim();
+      match.username = String(username).trim();
     }
 
-    const entries = await GameEntry.find(filter).sort({ createdAt: -1 }).lean();
+    // Fetch all eligible rows (redeem pending OR deposit reduction)
+    const entries = await GameEntry.find(match)
+      .sort({ createdAt: -1 }) // newest first
+      .lean();
 
-    const result = entries.map((e) => {
+    // Map <username::playerTag, latestEntry>
+    const latestMap = new Map();
+
+    for (const e of entries) {
+      const key = `${e.username}::${e.playerTag || ""}`;
+
+      // If already have an entry for this tag → skip (keep latest only)
+      if (latestMap.has(key)) continue;
+
       const totalPaid = toNumber(e.totalPaid ?? 0, 0);
       const totalCashout = toNumber(e.totalCashout ?? e.amountFinal ?? 0, 0);
-      const remainingPay = toNumber(
-        e.remainingPay ?? totalCashout - totalPaid,
-        0
-      );
 
-      return {
+      const reduction = toNumber(e.reduction ?? 0, 0);
+
+      let remainingPay = 0;
+
+      if (e.type === "redeem") {
+        remainingPay = toNumber(e.remainingPay ?? totalCashout - totalPaid, 0);
+      } else if (e.type === "deposit") {
+        // For player-tag deposit, reduction itself is the pending
+        remainingPay = reduction;
+      }
+
+      // Do not include fully-cleared rows
+      if (remainingPay <= 0) continue;
+
+      latestMap.set(key, {
         _id: String(e._id),
+        type: e.type,
         username: e.username,
         playerName: e.playerName || "",
         playerTag: e.playerTag || "",
@@ -322,6 +436,7 @@ router.get("/pending", async (req, res) => {
         totalPaid,
         totalCashout,
         remainingPay,
+        reduction,
         date:
           e.date ||
           (e.createdAt
@@ -330,8 +445,11 @@ router.get("/pending", async (req, res) => {
         createdAt: e.createdAt
           ? new Date(e.createdAt).toISOString()
           : undefined,
-      };
-    });
+      });
+    }
+
+    // Convert map → array
+    const result = Array.from(latestMap.values());
 
     return res.json(result);
   } catch (err) {
@@ -344,6 +462,9 @@ router.get("/pending", async (req, res) => {
 
 /**
  * 🔹 GET /api/game-entries/pending-by-tag
+ * Unified/latest pending for a tag:
+ *   - if latest is deposit with reduction > 0 → use that reduction
+ *   - else if latest is redeem with isPending = true → use remainingPay
  */
 router.get("/pending-by-tag", async (req, res) => {
   try {
@@ -358,36 +479,59 @@ router.get("/pending-by-tag", async (req, res) => {
         .json({ message: "playerTag and username are required" });
     }
 
-    const agg = await GameEntry.aggregate([
-      {
-        $match: {
-          username: cleanUser,
-          playerTag: cleanTag,
-          type: "redeem",
-          isPending: true,
-        },
-      },
-      {
-        $group: {
-          _id: null,
-          totalCashout: { $sum: { $ifNull: ["$totalCashout", 0] } },
-          totalPaid: { $sum: { $ifNull: ["$totalPaid", 0] } },
-          remainingPay: { $sum: { $ifNull: ["$remainingPay", 0] } },
-        },
-      },
-    ]);
+    const match = {
+      username: cleanUser,
+      playerTag: cleanTag,
+      $or: [
+        { type: "redeem", isPending: true },
+        { type: "deposit", reduction: { $gt: 0 } },
+      ],
+    };
 
-    if (!agg.length) {
+    const docs = await GameEntry.find(match).sort({ createdAt: 1 }).lean();
+    if (!docs.length) {
       return res.status(404).json({ message: "No pending for this tag" });
     }
 
-    const row = agg[0];
+    let lastRedeem = null;
+    let lastDeposit = null;
+
+    for (const e of docs) {
+      if (e.type === "deposit" && toNumber(e.reduction, 0) > 0) {
+        lastDeposit = e;
+      } else if (e.type === "redeem" && e.isPending) {
+        lastRedeem = e;
+      }
+    }
+
+    let totalPending = 0;
+    let pendingRedeem = 0;
+    let pendingReduction = 0;
+    let source = null;
+
+    if (lastDeposit) {
+      pendingReduction = toNumber(lastDeposit.reduction, 0);
+      totalPending = pendingReduction;
+      source = lastDeposit;
+    } else if (lastRedeem) {
+      const cashout = toNumber(lastRedeem.totalCashout ?? 0, 0);
+      const paid = toNumber(lastRedeem.totalPaid ?? 0, 0);
+      pendingRedeem = toNumber(lastRedeem.remainingPay ?? cashout - paid, 0);
+      totalPending = pendingRedeem;
+      source = lastRedeem;
+    }
+
+    if (!source || totalPending <= 0) {
+      return res.status(404).json({ message: "No pending for this tag" });
+    }
 
     return res.json({
       playerTag: cleanTag,
-      totalCashout: row.totalCashout || 0,
-      totalPaid: row.totalPaid || 0,
-      remainingPay: row.remainingPay || 0,
+      totalPending, // latest pending for this tag
+      pendingRedeem, // from redeem (if any)
+      pendingReduction, // from latest reduction (if any)
+      totalCashout: toNumber(source.totalCashout ?? 0, 0),
+      totalPaid: toNumber(source.totalPaid ?? 0, 0),
     });
   } catch (err) {
     console.error("❌ GET /api/game-entries/pending-by-tag error:", err);
@@ -398,21 +542,57 @@ router.get("/pending-by-tag", async (req, res) => {
 });
 
 /**
- * 🔹 GET /api/game-entries/summary
- * Global totals + deposit revenue split by payment method (monthly via createdAt)
+ * 🔹 PATCH /api/game-entries/:id/clear-pending
+ * Clear any pending amount for this entry:
+ *  - redeem  → remainingPay = 0, isPending = false
+ *  - deposit → reduction = 0 (and isPending = false just in case)
  */
-// 🔹 GET /api/game-entries/summary
-//     /api/game-entries/summary?year=2024&month=8
+router.patch("/:id/clear-pending", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const entry = await GameEntry.findById(id);
+    if (!entry) {
+      return res.status(404).json({ message: "Game entry not found" });
+    }
+
+    // We only clear pending fields, we do NOT touch amountFinal
+    // so Game.totalCoins does NOT change here.
+    if (entry.type === "redeem") {
+      // our-tag redeem pending
+      entry.remainingPay = 0;
+      entry.isPending = false;
+    } else if (entry.type === "deposit") {
+      // player-tag reduction pending
+      entry.reduction = 0;
+      entry.isPending = false;
+    } else {
+      // fallback: clear both fields for any other type, just in case
+      entry.remainingPay = 0;
+      entry.reduction = 0;
+      entry.isPending = false;
+    }
+
+    await entry.save();
+    await recordHistory(entry, "clear-pending");
+
+    return res.json(entry);
+  } catch (err) {
+    console.error("❌ PATCH /api/game-entries/:id/clear-pending error:", err);
+    return res
+      .status(500)
+      .json({ message: "Failed to clear pending for this entry" });
+  }
+});
+
 /**
  * 🔹 GET /api/game-entries/summary
  * Global totals + deposit revenue split by payment method
  * Supports:
- *   - /api/game-entries/summary             → all time
- *   - /api/game-entries/summary?year=2024&month=8  → that month only (using `date` string)
+ *   - /api/game-entries/summary
+ *   - /api/game-entries/summary?year=2024&month=8
+ *   - /api/game-entries/summary?year=2024&month=8&day=15
  */
-// 🔹 GET /api/game-entries/summary
-//     /api/game-entries/summary?year=2024&month=8
-//     /api/game-entries/summary?year=2024&month=8&day=15
 router.get("/summary", async (req, res) => {
   try {
     const year = parseInt(req.query.year, 10);
@@ -441,7 +621,6 @@ router.get("/summary", async (req, res) => {
       }
     }
 
-    // Debug so you can see what’s really happening
     console.log("SUMMARY query:", req.query);
     console.log("SUMMARY dateFilter:", JSON.stringify(dateFilter));
 
@@ -454,11 +633,11 @@ router.get("/summary", async (req, res) => {
           totalAmount: {
             $sum: {
               $cond: [
-                // deposit uses amountFinal (coins)
+                // deposit uses amountFinal
                 { $eq: ["$type", "deposit"] },
                 { $ifNull: ["$amountFinal", 0] },
 
-                // freeplay + redeem use amountFinal/amount
+                // others (freeplay, redeem, playedgame, etc.) use amountFinal/amount
                 {
                   $ifNull: ["$amountFinal", { $ifNull: ["$amount", 0] }],
                 },
@@ -470,18 +649,22 @@ router.get("/summary", async (req, res) => {
     ]);
 
     let totalFreeplay = 0;
+    let totalPlayedGame = 0;
     let totalDeposit = 0;
     let totalRedeem = 0;
 
     for (const t of byType) {
       if (t._id === "freeplay") totalFreeplay = t.totalAmount || 0;
+      if (t._id === "playedgame") totalPlayedGame = t.totalAmount || 0;
       if (t._id === "deposit") totalDeposit = t.totalAmount || 0;
       if (t._id === "redeem") totalRedeem = t.totalAmount || 0;
     }
 
-    const totalCoin = totalRedeem - (totalFreeplay + totalDeposit);
+    // redeem adds, freeplay + playedgame + deposit subtract
+    const totalCoin =
+      totalRedeem - (totalFreeplay + totalPlayedGame + totalDeposit);
 
-    // 3) Pending
+    // 3) Pending (only entries flagged as pending)
     const [pendingAgg] = await GameEntry.aggregate([
       { $match: { isPending: true, ...dateFilter } },
       {
@@ -533,6 +716,7 @@ router.get("/summary", async (req, res) => {
 
     res.json({
       totalFreeplay,
+      totalPlayedGame,
       totalDeposit,
       totalRedeem,
       totalCoin,
@@ -586,6 +770,11 @@ router.get("/summary-by-game", async (req, res) => {
               $cond: [{ $eq: ["$type", "freeplay"] }, COIN_AMOUNT_EXPR, 0],
             },
           },
+          totalPlayedGame: {
+            $sum: {
+              $cond: [{ $eq: ["$type", "playedgame"] }, COIN_AMOUNT_EXPR, 0],
+            },
+          },
           totalDeposit: {
             $sum: {
               $cond: [{ $eq: ["$type", "deposit"] }, COIN_AMOUNT_EXPR, 0],
@@ -600,11 +789,13 @@ router.get("/summary-by-game", async (req, res) => {
       },
       {
         $addFields: {
-          // per-game net coins: redeem − (freeplay + deposit)
+          // per-game net coins: redeem − (freeplay + playedgame + deposit)
           totalCoins: {
             $subtract: [
               "$totalRedeem",
-              { $add: ["$totalFreeplay", "$totalDeposit"] },
+              {
+                $add: ["$totalFreeplay", "$totalPlayedGame", "$totalDeposit"],
+              },
             ],
           },
         },
@@ -614,6 +805,7 @@ router.get("/summary-by-game", async (req, res) => {
           _id: 0,
           gameName: "$_id",
           totalFreeplay: 1,
+          totalPlayedGame: 1,
           totalDeposit: 1,
           totalRedeem: 1,
           totalCoins: 1,

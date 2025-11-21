@@ -16,24 +16,27 @@ import { DataTable } from "../DataTable";
 interface ServerPendingEntry {
   _id: string;
   username: string;
+  type?: "freeplay" | "deposit" | "redeem" | string;
   method?: string;
   playerName?: string;
   playerTag?: string;
   gameName: string;
   totalPaid?: number;
   totalCashout?: number;
-  remainingPay?: number;
+  remainingPay?: number; // combined pending (redeem or reduction)
+  reduction?: number; // for deposit (player tag)
   date?: string; // "YYYY-MM-DD"
   createdAt?: string; // ISO
 }
 
 export interface PendingRow {
   _id: string;
-  type: string; // "redeem" (for now)
-  label: string; // playerName or playerTag
+  type: "redeem" | "deposit";
+  playerName: string;
+  playerTag: string;
   method: string;
   gameName: string;
-  pendingAmount: number; // remainingPay
+  pendingAmount: number; // what we show in UI
   createdAt: string;
 }
 
@@ -54,102 +57,153 @@ const prettifyMethod = (m: string) => {
   return m;
 };
 
-const UserCashoutTable: FC = () => {
+const PendingPayments: FC = () => {
   const [rows, setRows] = useState<PendingRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
-  // Which row is being confirmed in the modal
   const [confirmRow, setConfirmRow] = useState<PendingRow | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
   // 🔄 load pending entries from GameEntry
-  useEffect(() => {
-    const fetchPending = async () => {
-      try {
-        setLoading(true);
-        setError("");
-
-        const res = await apiClient.get<ServerPendingEntry[]>(
-          "/api/game-entries/pending"
-        );
-
-        console.log("Pending entries from API:", res.data); // 👈 helpful debug
-
-        const mapped: PendingRow[] = res.data
-          .map((e) => {
-            // label: prefer playerName, else playerTag
-            const label = e.playerName?.trim()
-              ? e.playerName.trim()
-              : e.playerTag?.trim()
-              ? e.playerTag.trim()
-              : "Unknown";
-
-            // For /pending route, we only have pending REDEEMs,
-            // so pending amount = remainingPay
-            const pendingAmount = Number(e.remainingPay ?? 0);
-
-            if (!(pendingAmount > 0)) return null;
-
-            return {
-              _id: e._id,
-              type: "redeem", // current /pending is only redeems
-              label,
-              method: e.method || "-",
-              gameName: e.gameName || "-",
-              pendingAmount,
-              createdAt: e.createdAt || e.date || "",
-            };
-          })
-          .filter((r): r is PendingRow => r !== null);
-
-        setRows(mapped);
-      } catch (err: any) {
-        console.error("Failed to load pending entries:", err);
-        setError(
-          err?.response?.data?.message ||
-            "Failed to load pending payments. Please try again."
-        );
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchPending();
-  }, []);
-
-  // ✅ Mark as paid → clear pending in backend + remove from list
-  const handleMarkPaid = useCallback(async (row: PendingRow) => {
+  const fetchPending = useCallback(async () => {
     try {
-      setUpdatingId(row._id);
+      setLoading(true);
       setError("");
 
-      // Backend route to clear pending
-      await apiClient.patch(`/api/game-entries/${row._id}/clear-pending`, {
-        reduction: 0,
-      });
+      const res = await apiClient.get<ServerPendingEntry[]>(
+        "/api/game-entries/pending"
+      );
 
-      // Remove from UI list
-      setRows((prev) => prev.filter((r) => r._id !== row._id));
+      console.log("Pending entries from API:", res.data);
+
+      const mapped: PendingRow[] = res.data
+        .map((e) => {
+          const rawType = (e.type || "redeem").toString().toLowerCase();
+          const type: "redeem" | "deposit" =
+            rawType === "deposit" ? "deposit" : "redeem";
+
+          const playerName = (e.playerName || "").trim();
+          const playerTag = (e.playerTag || "").trim();
+
+          const remainingPayNum = Number(e.remainingPay ?? 0);
+          const reductionNum =
+            e.reduction !== undefined && e.reduction !== null
+              ? Number(e.reduction)
+              : null;
+
+          let isPending = false;
+          let pendingAmountForUI = 0;
+
+          if (type === "redeem") {
+            // For redeem rows, use remainingPay
+            if (Number.isFinite(remainingPayNum) && remainingPayNum > 0) {
+              isPending = true;
+              pendingAmountForUI = remainingPayNum;
+            }
+          } else if (type === "deposit") {
+            // For deposit rows, use reduction if available
+            if (
+              reductionNum !== null &&
+              Number.isFinite(reductionNum) &&
+              reductionNum > 0
+            ) {
+              isPending = true;
+              pendingAmountForUI = reductionNum;
+            } else if (
+              // fallback to remainingPay if reduction missing
+              Number.isFinite(remainingPayNum) &&
+              remainingPayNum > 0
+            ) {
+              isPending = true;
+              pendingAmountForUI = remainingPayNum;
+            }
+          }
+
+          // ❌ If not pending or amount ≤ 0 → skip (won't show in table)
+          if (!isPending || pendingAmountForUI <= 0) {
+            return null;
+          }
+
+          return {
+            _id: e._id,
+            type,
+            playerName,
+            playerTag,
+            method: e.method || "-",
+            gameName: e.gameName || "-",
+            pendingAmount: pendingAmountForUI,
+            createdAt: e.createdAt || e.date || "",
+          };
+        })
+        .filter((r): r is PendingRow => r !== null)
+        // extra safety: only strictly positive
+        .filter((r) => r.pendingAmount > 0);
+
+      setRows(mapped);
+      setLastUpdated(new Date().toLocaleString());
     } catch (err: any) {
-      console.error("Failed to mark as paid:", err);
+      console.error("Failed to load pending entries:", err);
       setError(
         err?.response?.data?.message ||
-          "Failed to mark as paid. Please try again."
+          "Failed to load pending payments. Please try again."
       );
     } finally {
-      setUpdatingId(null);
+      setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    fetchPending();
+  }, [fetchPending]);
+
+  // ✅ Mark as paid → clear pending in backend + remove from list
+  const handleMarkPaid = useCallback(
+    async (row: PendingRow) => {
+      try {
+        setUpdatingId(row._id);
+        setError("");
+
+        // Backend route should clear remainingPay / reduction + isPending
+        await apiClient.patch(`/api/game-entries/${row._id}/clear-pending`, {
+          reduction: 0,
+        });
+
+        // Remove from UI list immediately
+        setRows((prev) => prev.filter((r) => r._id !== row._id));
+
+        // 🔁 Refresh from backend (in case combined pending changed)
+        fetchPending();
+      } catch (err: any) {
+        console.error("Failed to mark as paid:", err);
+        setError(
+          err?.response?.data?.message ||
+            "Failed to mark as paid. Please try again."
+        );
+      } finally {
+        setUpdatingId(null);
+      }
+    },
+    [fetchPending]
+  );
 
   const columns: ColumnDef<PendingRow>[] = useMemo(
     () => [
       {
-        accessorKey: "label",
-        header: "Player / Tag",
+        accessorKey: "playerName",
+        header: "Player Name",
         cell: ({ getValue }) => {
           const v = (getValue() as string) || "-";
-          return <span className="font-medium">{v}</span>;
+          return <span className="text-sm">{v}</span>;
+        },
+      },
+      {
+        accessorKey: "playerTag",
+        header: "Player Tag",
+        cell: ({ getValue }) => {
+          const v = (getValue() as string) || "-";
+          return <span className="text-xs font-mono">{v}</span>;
         },
       },
       {
@@ -239,7 +293,7 @@ const UserCashoutTable: FC = () => {
                     ? "bg-gray-400 cursor-not-allowed"
                     : "bg-green-600 hover:bg-green-700"
                 }`}
-                onClick={() => setConfirmRow(data)} // open modal
+                onClick={() => setConfirmRow(data)}
               >
                 {busy ? "Saving..." : "Mark Paid"}
               </button>
@@ -256,6 +310,9 @@ const UserCashoutTable: FC = () => {
       ? confirmRow.pendingAmount.toFixed(2)
       : "0.00";
 
+  const confirmLabel =
+    confirmRow?.playerName || confirmRow?.playerTag || "this entry";
+
   return (
     <div className="w-full max-w-8xl mx-auto bg-white text-black rounded-xl shadow p-4 md:p-6 space-y-4">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -266,7 +323,25 @@ const UserCashoutTable: FC = () => {
           <p className="text-xs md:text-sm text-gray-600">
             Redeem & player-tag entries that still have pending amounts.
           </p>
+          {lastUpdated && (
+            <p className="mt-1 text-[11px] md:text-xs text-gray-400">
+              Last refreshed: {lastUpdated}
+            </p>
+          )}
         </div>
+
+        <button
+          type="button"
+          onClick={fetchPending}
+          disabled={loading}
+          className={`inline-flex items-center justify-center rounded-md border px-3 py-1.5 text-xs md:text-sm font-medium ${
+            loading
+              ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+              : "bg-gray-50 hover:bg-gray-100 text-gray-800 border-gray-300"
+          }`}
+        >
+          {loading ? "Refreshing..." : "Refresh"}
+        </button>
       </div>
 
       {error && (
@@ -275,7 +350,7 @@ const UserCashoutTable: FC = () => {
         </div>
       )}
 
-      {loading ? (
+      {loading && rows.length === 0 ? (
         <div className="py-10 text-center text-sm text-gray-600">
           Loading pending payments…
         </div>
@@ -289,7 +364,7 @@ const UserCashoutTable: FC = () => {
           <div className="bg-white text-black rounded-lg shadow-lg p-5 w-full max-w-sm">
             <h3 className="text-lg font-semibold mb-2">Mark as Paid?</h3>
             <p className="text-sm text-gray-700 mb-4">
-              Mark <span className="font-semibold">{confirmRow.label}</span>
+              Mark <span className="font-semibold">{confirmLabel}</span>
               {"'s "}
               <span className="font-semibold">${prettyAmount}</span> as{" "}
               <span className="font-semibold">PAID</span> and clear it from
@@ -322,4 +397,4 @@ const UserCashoutTable: FC = () => {
   );
 };
 
-export default UserCashoutTable;
+export default PendingPayments;

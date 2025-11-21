@@ -12,7 +12,7 @@ import type { Game } from "../admin/Gamerow";
 import GameEntryForm from "./GameEntryForm";
 import RecentEntriesTable, { GameEntry } from "./RecentEntriesTable";
 import PaymentCombinedTable from "./PaymentCombinedTable";
-import UserCashoutTable from "./UserCashout";
+import PendingPayments from "./PendingPaymentsTable";
 
 // -----------------------------
 // Constants
@@ -137,7 +137,7 @@ const UserDashboard: FC<UserDashboardProps> = ({
                 <GameEntryForm username={username} />
               </div>
               <div className="grid grid-cols-1 gap-6 mb-8">
-                <UserCashoutTable username={username} />
+                <PendingPayments username={username} />
               </div>
             </>
           )}

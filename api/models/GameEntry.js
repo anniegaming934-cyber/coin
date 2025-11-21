@@ -1,7 +1,8 @@
 // api/models/GameEntry.js
 import mongoose from "mongoose";
 
-export const ALLOWED_TYPES = ["freeplay", "deposit", "redeem"];
+// ✅ include playedgame
+export const ALLOWED_TYPES = ["freeplay", "deposit", "redeem", "playedgame"];
 export const ALLOWED_METHODS = ["cashapp", "paypal", "chime", "venmo"];
 
 /**
@@ -19,10 +20,12 @@ const gameEntrySchema = new mongoose.Schema(
     username: { type: String, required: true, trim: true },
     createdBy: { type: String, required: true, trim: true },
 
-    // "freeplay" | "deposit" | "redeem"
+    // "freeplay" | "deposit" | "redeem" | "playedgame"
+    // playedgame behaves like freeplay in backend totals (no method required)
     type: { type: String, enum: ALLOWED_TYPES, required: true },
 
     // 💳 method required only for deposit / redeem
+    // freeplay + playedgame do NOT require method
     method: {
       type: String,
       enum: ALLOWED_METHODS,
@@ -49,11 +52,11 @@ const gameEntrySchema = new mongoose.Schema(
     // optional raw amount if needed (you often set = amountFinal)
     amount: { type: Number, min: 0 },
 
-    // 🎁 bonus details (mostly for deposit)
+    // 🎁 bonus details (for deposit + playedgame in your UI)
     bonusRate: { type: Number, default: 0, min: 0 },
     bonusAmount: { type: Number, default: 0, min: 0 },
 
-    // final amount (after bonus for deposit, or same as base otherwise)
+    // final amount (after bonus for deposit/playedgame, or same as base otherwise)
     amountFinal: { type: Number, required: true, min: 0 },
 
     note: { type: String, default: "", trim: true },
