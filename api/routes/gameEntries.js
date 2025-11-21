@@ -379,77 +379,118 @@ router.post("/", async (req, res) => {
  *   - redeem (our tag) with isPending = true
  *   - deposit (player tag) with reduction > 0
  */
+/**
+ * 🔹 GET /api/game-entries/pending
+ * For each (username + playerTag), show a single "current" pending record:
+ *   - If there's a deposit for that tag → use its `reduction` as pending.
+ *   - Else if there's a redeem with isPending = true → use its remainingPay.
+ *   - If computed pending <= 0 → do NOT include it.
+ *
+ * This means: once a player-tag deposit has reduction = 0, that tag will
+ * no longer appear in this list (even if old redeem rows had remainingPay).
+ */
 router.get("/pending", async (req, res) => {
   try {
     const { username } = req.query;
 
     const match = {
-      $or: [
-        { type: "redeem", isPending: true },
-        { type: "deposit", reduction: { $gt: 0 } },
-      ],
+      $or: [{ type: "redeem" }, { type: "deposit" }],
     };
 
     if (username && String(username).trim()) {
       match.username = String(username).trim();
     }
 
-    // Fetch all eligible rows (redeem pending OR deposit reduction)
-    const entries = await GameEntry.find(match)
-      .sort({ createdAt: -1 }) // newest first
-      .lean();
+    // Get ALL redeem + deposit rows (for that user, if provided)
+    // Oldest → newest so "last" is the latest
+    const docs = await GameEntry.find(match).sort({ createdAt: 1 }).lean();
 
-    // Map <username::playerTag, latestEntry>
-    const latestMap = new Map();
+    // Map of key -> { lastRedeem, lastDeposit }
+    const tagMap = new Map();
 
-    for (const e of entries) {
+    for (const e of docs) {
       const key = `${e.username}::${e.playerTag || ""}`;
-
-      // If already have an entry for this tag → skip (keep latest only)
-      if (latestMap.has(key)) continue;
-
-      const totalPaid = toNumber(e.totalPaid ?? 0, 0);
-      const totalCashout = toNumber(e.totalCashout ?? e.amountFinal ?? 0, 0);
-
-      const reduction = toNumber(e.reduction ?? 0, 0);
-
-      let remainingPay = 0;
-
-      if (e.type === "redeem") {
-        remainingPay = toNumber(e.remainingPay ?? totalCashout - totalPaid, 0);
-      } else if (e.type === "deposit") {
-        // For player-tag deposit, reduction itself is the pending
-        remainingPay = reduction;
+      let group = tagMap.get(key);
+      if (!group) {
+        group = { lastRedeem: null, lastDeposit: null };
+        tagMap.set(key, group);
       }
 
-      // Do not include fully-cleared rows
-      if (remainingPay <= 0) continue;
+      if (e.type === "redeem") {
+        // keep the latest redeem (regardless of isPending; we'll check later)
+        group.lastRedeem = e;
+      } else if (e.type === "deposit") {
+        // keep the latest deposit (even if reduction = 0)
+        group.lastDeposit = e;
+      }
+    }
 
-      latestMap.set(key, {
-        _id: String(e._id),
-        type: e.type,
-        username: e.username,
-        playerName: e.playerName || "",
-        playerTag: e.playerTag || "",
-        gameName: e.gameName,
-        method: e.method || "",
+    const result = [];
+
+    for (const [, group] of tagMap.entries()) {
+      const { lastRedeem, lastDeposit } = group;
+
+      let pendingReduction = 0;
+      let pendingRedeem = 0;
+      let totalPending = 0;
+      let baseDoc = null;
+
+      // 1️⃣ If there is a deposit, it is the source of truth
+      if (lastDeposit) {
+        pendingReduction = toNumber(lastDeposit.reduction, 0);
+        totalPending = pendingReduction;
+        baseDoc = lastDeposit;
+      } else if (lastRedeem && lastRedeem.isPending) {
+        // 2️⃣ If no deposit, fall back to redeem pending
+        const totalPaid = toNumber(lastRedeem.totalPaid ?? 0, 0);
+        const totalCashout = toNumber(
+          lastRedeem.totalCashout ?? lastRedeem.amountFinal ?? 0,
+          0
+        );
+
+        pendingRedeem = toNumber(
+          lastRedeem.remainingPay ?? totalCashout - totalPaid,
+          0
+        );
+
+        totalPending = pendingRedeem;
+        baseDoc = lastRedeem;
+      }
+
+      // If nothing pending for this tag → skip
+      if (!baseDoc || totalPending <= 0) {
+        continue;
+      }
+
+      // Build response row (remainingPay carries the combined "current" pending)
+      const totalPaid = toNumber(baseDoc.totalPaid ?? 0, 0);
+      const totalCashout = toNumber(
+        baseDoc.totalCashout ?? baseDoc.amountFinal ?? 0,
+        0
+      );
+
+      result.push({
+        _id: String(baseDoc._id),
+        type: baseDoc.type,
+        username: baseDoc.username,
+        playerName: baseDoc.playerName || "",
+        playerTag: baseDoc.playerTag || "",
+        gameName: baseDoc.gameName,
+        method: baseDoc.method || "",
         totalPaid,
         totalCashout,
-        remainingPay,
-        reduction,
+        remainingPay: totalPending, // ← this is what the frontend uses
+        reduction: pendingReduction,
         date:
-          e.date ||
-          (e.createdAt
-            ? new Date(e.createdAt).toISOString().slice(0, 10)
+          baseDoc.date ||
+          (baseDoc.createdAt
+            ? new Date(baseDoc.createdAt).toISOString().slice(0, 10)
             : undefined),
-        createdAt: e.createdAt
-          ? new Date(e.createdAt).toISOString()
+        createdAt: baseDoc.createdAt
+          ? new Date(baseDoc.createdAt).toISOString()
           : undefined,
       });
     }
-
-    // Convert map → array
-    const result = Array.from(latestMap.values());
 
     return res.json(result);
   } catch (err) {
