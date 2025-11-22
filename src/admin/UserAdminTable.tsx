@@ -18,6 +18,11 @@ export interface UserSummary {
   isAdmin?: boolean;
   isApproved?: boolean;
   status?: string; // "pending" | "active" | "blocked" | etc.
+
+  // NEW: session info from backend /api/admin/users
+  isOnline?: boolean;
+  lastSignInAt?: string | null;
+  lastSignOutAt?: string | null;
 }
 
 export interface UserAdminTableProps {
@@ -83,6 +88,31 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ onViewHistory }) => {
 
   const columns = useMemo<ColumnDef<UserSummary, any>[]>(() => {
     return [
+      // NEW: Online / Offline column
+      {
+        id: "online",
+        header: "Online",
+        cell: ({ row }) => {
+          const u = row.original;
+          const isOnline = Boolean(u.isOnline);
+
+          if (isOnline) {
+            return (
+              <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full">
+                <span className="inline-block h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                Online
+              </span>
+            );
+          }
+
+          return (
+            <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 bg-slate-50 px-2 py-1 rounded-full">
+              <span className="inline-block h-2 w-2 rounded-full bg-slate-400" />
+              Offline
+            </span>
+          );
+        },
+      },
       {
         id: "status",
         header: "Status",
