@@ -1,18 +1,32 @@
 // routes/adminUsers.js
 import express from "express";
-import bcrypt from "bcryptjs";
 import User from "../models/User.js";
 import LoginSession from "../models/LoginSession.js";
 import GameEntry from "../models/GameEntry.js";
+import { requireAuth, requireAdmin } from "./auth.js"; // from routes/auth.js
 
 const router = express.Router();
 
-// GET /api/admin/users
-router.get("/", async (req, res) => {
+/**
+ * GET /api/admin/users
+ * Optional: ?status=pending | active | blocked
+ *
+ * NOTE: This assumes you mount the router like:
+ *   app.use("/api/admin/users", adminUsersRouter);
+ * so this handler is for path "/".
+ */
+router.get("/", requireAuth, requireAdmin, async (req, res) => {
   try {
+    const { status } = req.query;
+
+    const userQuery = {};
+    if (status) {
+      userQuery.status = status;
+    }
+
     const users = await User.find(
-      {},
-      "username email lastSignInAt lastSignOutAt role isAdmin createdAt"
+      userQuery,
+      "username email lastSignInAt lastSignOutAt role isAdmin createdAt isApproved status"
     )
       .sort({ createdAt: -1 })
       .lean();
@@ -128,8 +142,76 @@ router.get("/", async (req, res) => {
     res.status(500).json({ message: "Failed to fetch users" });
   }
 });
-// DELETE /api/admin/users/:id
-router.delete("/:id", async (req, res) => {
+
+/**
+ * PATCH /api/admin/users/:id/approve
+ * Mark user as approved + active
+ *
+ * With mount app.use("/api/admin/users", router)
+ * this is PATCH /api/admin/users/:id/approve
+ */
+router.patch("/:id/approve", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const user = await User.findByIdAndUpdate(
+      id,
+      {
+        isApproved: true,
+        status: "active",
+      },
+      { new: true }
+    ).select("username email role isAdmin isApproved status createdAt");
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.json({
+      message: "User approved successfully",
+      user,
+    });
+  } catch (err) {
+    console.error("Error approving user:", err);
+    return res.status(500).json({ message: "Failed to approve user" });
+  }
+});
+
+/**
+ * PATCH /api/admin/users/:id/block
+ * Mark user as blocked (and not approved)
+ */
+router.patch("/:id/block", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const user = await User.findByIdAndUpdate(
+      id,
+      {
+        isApproved: false,
+        status: "blocked",
+      },
+      { new: true }
+    ).select("username email role isAdmin isApproved status createdAt");
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.json({
+      message: "User blocked successfully",
+      user,
+    });
+  } catch (err) {
+    console.error("Error blocking user:", err);
+    return res.status(500).json({ message: "Failed to block user" });
+  }
+});
+
+/**
+ * DELETE /api/admin/users/:id
+ */
+router.delete("/:id", requireAuth, requireAdmin, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -139,7 +221,7 @@ router.delete("/:id", async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // 2) Optionally delete related login sessions
+    // 2) Delete related login sessions (optional but nice)
     if (user.username) {
       await LoginSession.deleteMany({ username: user.username });
     }

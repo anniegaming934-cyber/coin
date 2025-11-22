@@ -6,12 +6,36 @@ import PlayerTagEntryForm from "./PlayerTagEntryForm";
 type EntryMode = "our" | "player";
 
 interface GameEntryFormProps {
-  username: string; // 👈 comes from UserDashboard
+  username: string; // comes from UserDashboard
 }
 
 const GameEntryForm: React.FC<GameEntryFormProps> = ({ username }) => {
   const [entryMode, setEntryMode] = useState<EntryMode>("our");
 
+  // 🔐 HARD AUTH GUARD — do NOT show form if not logged in
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("token") : null;
+
+  const isAuthed = !!token && !!username;
+
+  if (!isAuthed) {
+    return (
+      <div className="w-full p-4 md:p-6">
+        <div className="border rounded-xl p-6 bg-gray-50 text-center shadow-sm">
+          <h2 className="text-lg font-semibold mb-2">
+            You cannot fill the form
+          </h2>
+          <p className="text-sm text-gray-600">
+            You are not signed in. Please log in to add game entries.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------
+  // IF signed in → show real form
+  // ---------------------------------------------------------
   return (
     <div className="w-full p-4 md:p-6 space-y-6">
       <div className="w-full rounded-2xl border p-4 md:p-6 shadow-sm bg-white">
@@ -46,7 +70,7 @@ const GameEntryForm: React.FC<GameEntryFormProps> = ({ username }) => {
           </div>
         </div>
 
-        {/* Username (from props, disabled) */}
+        {/* Username */}
         <div className="mb-4">
           <label className="block text-sm font-medium mb-1">Username</label>
           <input
@@ -55,14 +79,9 @@ const GameEntryForm: React.FC<GameEntryFormProps> = ({ username }) => {
             className="w-full rounded-lg border px-3 py-2 bg-gray-100 text-gray-600"
             placeholder="Not logged in"
           />
-          {!username && (
-            <p className="text-[11px] text-red-500 mt-1">
-              Please log in first to add entries.
-            </p>
-          )}
         </div>
 
-        {/* Mode-specific form */}
+        {/* Mode-specific sub-forms */}
         {entryMode === "our" ? (
           <OurTagEntryForm username={username} />
         ) : (

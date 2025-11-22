@@ -1,6 +1,6 @@
 import React, { FC, useEffect, useMemo, useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import { Loader2, AlertTriangle } from "lucide-react";
+import { Loader2, AlertTriangle, CheckCircle2, Clock, Ban } from "lucide-react";
 
 import { apiClient } from "../apiConfig";
 import { DataTable } from "../DataTable";
@@ -14,8 +14,10 @@ export interface UserSummary {
   totalDeposit: number;
   totalRedeem: number;
 
-  // ⬇️ add this if backend sends it
+  // from backend
   isAdmin?: boolean;
+  isApproved?: boolean;
+  status?: string; // "pending" | "active" | "blocked" | etc.
 }
 
 export interface UserAdminTableProps {
@@ -81,6 +83,42 @@ const UserAdminTable: FC<UserAdminTableProps> = ({ onViewHistory }) => {
 
   const columns = useMemo<ColumnDef<UserSummary, any>[]>(() => {
     return [
+      {
+        id: "status",
+        header: "Status",
+        cell: ({ row }) => {
+          const u = row.original;
+          const status = (u.status || "").toLowerCase();
+          const isApproved = u.isApproved;
+
+          // Decide label + icon + styles
+          if (status === "blocked") {
+            return (
+              <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 bg-red-50 px-2 py-1 rounded-full">
+                <Ban size={12} />
+                Blocked
+              </span>
+            );
+          }
+
+          if (status === "pending" || isApproved === false) {
+            return (
+              <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-700 bg-slate-50 px-2 py-1 rounded-full">
+                <Clock size={12} />
+                Pending
+              </span>
+            );
+          }
+
+          // default → treat as approved/active
+          return (
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-full">
+              <CheckCircle2 size={12} />
+              Approved
+            </span>
+          );
+        },
+      },
       {
         accessorKey: "username",
         header: "Username",

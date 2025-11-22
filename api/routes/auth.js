@@ -52,7 +52,7 @@ async function requireAuth(req, res, next) {
 
     // payload.userId comes from login below
     const user = await User.findById(payload.userId).select(
-      "_id name username email role isAdmin"
+      "_id name username email role isAdmin isApproved status"
     );
 
     if (!user) {
@@ -65,6 +65,18 @@ async function requireAuth(req, res, next) {
     console.error("requireAuth error:", err);
     res.status(500).json({ message: "Server error", error: err.message });
   }
+}
+
+/**
+ * 👑 Admin-only guard
+ * Must be used AFTER requireAuth
+ */
+function requireAdmin(req, res, next) {
+  const u = req.user;
+  if (!u || (!u.isAdmin && u.role !== "admin")) {
+    return res.status(403).json({ message: "Admin access required" });
+  }
+  next();
 }
 
 // POST /api/auth/register
@@ -94,11 +106,22 @@ router.post("/register", async (req, res) => {
       passwordHash,
       role: "user",
       isAdmin: false,
+      // ⭐ Admin verification fields (must exist in your model)
+      isApproved: false,
+      status: "pending",
     });
 
+    // 🚫 Do NOT log them in here; require admin approval first
     res.status(201).json({
-      message: "User registered",
-      user: { id: user._id, email: user.email, username: user.username },
+      message: "Account created. Waiting for admin approval.",
+      requiresApproval: true,
+      user: {
+        id: user._id,
+        email: user.email,
+        username: user.username,
+        isApproved: user.isApproved,
+        status: user.status,
+      },
     });
   } catch (err) {
     console.error("❌ Register error:", err);
@@ -137,6 +160,21 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
+    // ⭐ ADMIN VERIFICATION CHECK
+    // Backwards compatible: if isApproved is undefined, don't block
+    if (user.role === "user" && user.isApproved === false) {
+      return res.status(403).json({
+        message: "Your account is pending admin approval.",
+        code: "NOT_APPROVED",
+      });
+    }
+    if (user.status === "blocked") {
+      return res.status(403).json({
+        message: "Your account has been blocked. Please contact admin.",
+        code: "BLOCKED",
+      });
+    }
+
     // 👇 IMPORTANT: userId matches requireAuth / requireAdmin
     const payload = {
       userId: user._id.toString(),
@@ -154,10 +192,12 @@ router.post("/login", async (req, res) => {
       user: {
         id: user._id,
         name: user.name,
-        email: user.email, // 👈 this is the canonical, case-sensitive value
+        email: user.email, // 👈 canonical value
         username: user.username,
         role: user.role,
         isAdmin: user.isAdmin,
+        isApproved: user.isApproved,
+        status: user.status,
       },
     });
   } catch (err) {
@@ -180,8 +220,11 @@ router.get("/me", requireAuth, (req, res) => {
       email: u.email,
       role: u.role,
       isAdmin: u.isAdmin,
+      isApproved: u.isApproved,
+      status: u.status,
     },
   });
 });
 
+export { requireAuth, requireAdmin, JWT_SECRET };
 export default router;

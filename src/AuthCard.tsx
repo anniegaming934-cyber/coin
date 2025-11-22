@@ -1,10 +1,11 @@
-import React, { useState } from "react";
+// src/AuthCard.tsx
+import React, { useState, useEffect } from "react";
 import LoginForm from "./LoginForm";
 import RegisterForm from "./RegisterForm";
 
 interface AuthCardProps {
-  onAuthSuccess: (username: string) => void;
-  initialMode?: "login" | "register"; // optional
+  onAuthSuccess: (username: string, role?: "admin" | "user") => void;
+  initialMode?: "login" | "register";
 }
 
 const AuthCard: React.FC<AuthCardProps> = ({
@@ -12,6 +13,27 @@ const AuthCard: React.FC<AuthCardProps> = ({
   initialMode = "login",
 }) => {
   const [mode, setMode] = useState<"login" | "register">(initialMode);
+
+  // If already logged in (token + username), skip straight to dashboard
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const token = localStorage.getItem("token");
+    const savedUsername = localStorage.getItem("username");
+    const savedRole = localStorage.getItem("role") as "admin" | "user" | null;
+
+    if (token && savedUsername) {
+      onAuthSuccess(savedUsername, savedRole ?? "user");
+    }
+  }, [onAuthSuccess]);
+
+  const handleSuccess = (username: string, role?: "admin" | "user") => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("username", username);
+      if (role) localStorage.setItem("role", role);
+    }
+    onAuthSuccess(username, role);
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-100">
@@ -44,12 +66,12 @@ const AuthCard: React.FC<AuthCardProps> = ({
         {mode === "login" ? (
           <LoginForm
             onSwitchToRegister={() => setMode("register")}
-            onSuccess={(username) => onAuthSuccess(username)}
+            onSuccess={(username) => handleSuccess(username, "user")}
           />
         ) : (
           <RegisterForm
             onSwitchToLogin={() => setMode("login")}
-            onSuccess={(username) => onAuthSuccess(username)}
+            onSuccess={(username) => handleSuccess(username, "user")}
           />
         )}
       </div>

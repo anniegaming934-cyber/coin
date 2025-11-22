@@ -1,9 +1,8 @@
 // src/App.tsx
-import { useEffect, useState } from "react";
-import type { FC } from "react";
+import { useEffect, useState, type FC } from "react";
 import AuthCard from "./AuthCard";
-import UserDashboard from "./user/UserDashboard.tsx";
-import AdminDashboard from "./admin/AdminDashboard.tsx";
+import UserDashboard from "./user/UserDashboard";
+import AdminDashboard from "./admin/AdminDashboard";
 import { apiClient } from "./apiConfig";
 
 const App: FC = () => {
@@ -12,6 +11,18 @@ const App: FC = () => {
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [role, setRole] = useState<"user" | "admin">("user");
 
+  // 🔐 Central logout – everything must use this
+  const handleLogout = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("role");
+    localStorage.removeItem("username");
+
+    setIsAuthed(false);
+    setUsername("");
+    setRole("user");
+  };
+
+  // ✅ On first load: validate token with /api/auth/me
   useEffect(() => {
     const token = localStorage.getItem("token");
     const storedRole = localStorage.getItem("role") as "admin" | "user" | null;
@@ -22,10 +33,10 @@ const App: FC = () => {
 
     if (!token) {
       setCheckingAuth(false);
+      setIsAuthed(false);
       return;
     }
 
-    // 👇 IMPORTANT: use /api/auth/me (NOT /auth/me)
     apiClient
       .get("/api/auth/me")
       .then((res) => {
@@ -34,8 +45,7 @@ const App: FC = () => {
           user?.name || user?.username || user?.email || "";
 
         if (!user || !nameFromApi) {
-          localStorage.removeItem("token");
-          localStorage.removeItem("role");
+          handleLogout();
           return;
         }
 
@@ -51,20 +61,22 @@ const App: FC = () => {
       })
       .catch((err) => {
         console.error("Auth check failed:", err?.response?.data || err.message);
-        localStorage.removeItem("token");
-        localStorage.removeItem("role");
+        handleLogout();
       })
       .finally(() => setCheckingAuth(false));
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("role");
-    localStorage.removeItem("username");
-    setIsAuthed(false);
-    setUsername("");
-    setRole("user");
-  };
+  // 🧩 Extra safety: if token is cleared elsewhere, force logout
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "token" && e.newValue === null) {
+        handleLogout();
+      }
+    };
+
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
 
   if (checkingAuth) {
     return (
@@ -74,19 +86,26 @@ const App: FC = () => {
     );
   }
 
+  // ❌ Not authenticated → only show AuthCard, NO dashboard, NO forms
   if (!isAuthed) {
     return (
       <AuthCard
         onAuthSuccess={(name: string, nextRole?: "admin" | "user") => {
           setUsername(name);
           localStorage.setItem("username", name);
-          if (nextRole) setRole(nextRole);
+
+          if (nextRole) {
+            setRole(nextRole);
+            localStorage.setItem("role", nextRole);
+          }
+
           setIsAuthed(true);
         }}
       />
     );
   }
 
+  // ✅ Authenticated → show correct dashboard
   return role === "admin" ? (
     <AdminDashboard username={username} onLogout={handleLogout} />
   ) : (

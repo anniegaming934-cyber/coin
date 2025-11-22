@@ -25,6 +25,7 @@ import FacebookLeadForm from "../FacebookLeadForm";
 import UserAllCashoutTable from "./UserALLCashout";
 import GameLogins from "./GameLogin";
 import ScheduleForm from "./ScheduleForm";
+import AdminPendingUsersTable from "./AdminPendingUsersTable";
 
 interface Game {
   id: number;
@@ -504,6 +505,7 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
           {/* OVERVIEW TAB */}
           {activeSection === "overview" && (
             <>
+              <AdminPendingUsersTable />
               {/* Summary table */}
               <div className="w-full mb-8">
                 <div className="flex items-center justify-between mb-2">

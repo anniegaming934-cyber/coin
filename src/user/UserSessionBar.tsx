@@ -1,12 +1,13 @@
 // src/UserSessionBar.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { LogIn, LogOut, Clock } from "lucide-react";
 import { apiClient } from "../apiConfig";
 
 interface UserSessionBarProps {
   username: string;
-  email?: string; // ✅ added
+  email?: string;
   onLogout: () => void;
+  onSessionChange?: (isSignedIn: boolean) => void; // ✅ NEW
 }
 
 const LOGIN_API_BASE = "/api/logins";
@@ -15,6 +16,7 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
   username,
   email,
   onLogout,
+  onSessionChange,
 }) => {
   const [now, setNow] = useState(new Date());
   const [signInDateTime, setSignInDateTime] = useState<Date | null>(null);
@@ -49,8 +51,6 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
       const storedId = parsed.id || parsed.sessionId || null;
       const storedEmail = parsed.email;
 
-      // Only restore if this session belongs to this username
-      // and (if email exists) to this email too
       const sameUser = storedUser === username;
       const sameEmail = !email || storedEmail === email;
 
@@ -58,11 +58,12 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
         setSessionId(storedId);
         setSignInDateTime(new Date(storedSignInAt));
         setIsSignedIn(true);
+        onSessionChange?.(true); // ✅ tell parent
       }
     } catch {
       localStorage.removeItem("userSession");
     }
-  }, [username, email]);
+  }, [username, email, onSessionChange]);
 
   const formattedTime = now.toLocaleTimeString([], {
     hour: "2-digit",
@@ -94,7 +95,7 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
       })
     : null;
 
-  // 🟢 SIGN IN handler
+  // 🟢 SIGN IN handler (work session)
   const handleSignIn = async () => {
     try {
       setLoading(true);
@@ -102,11 +103,10 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
 
       const { data } = await apiClient.post(`${LOGIN_API_BASE}/start`, {
         username,
-        email, // ✅ send email to backend
+        email,
         signInAt,
       });
 
-      // 🔑 Support typical Mongo shape: {_id: "..."} OR {id: "..."} OR {sessionId: "..."}
       const id: string | undefined =
         data.id || data._id || data.sessionId || data.session_id;
 
@@ -115,13 +115,14 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
         sessionId: id || null,
         signInAt,
         user: username,
-        email: email || null, // ✅ store email in localStorage
+        email: email || null,
       };
 
       localStorage.setItem("userSession", JSON.stringify(sessionData));
       setSessionId(id || null);
       setIsSignedIn(true);
       setSignInDateTime(new Date(signInAt));
+      onSessionChange?.(true); // ✅ tell parent
     } catch (err) {
       console.error("Failed to sign in:", err);
       alert("Failed to start session. Check console or backend.");
@@ -130,26 +131,13 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
     }
   };
 
-  // 🔴 Toggle button click
-  const handleClickToggle = () => {
-    if (loading) return;
-
-    if (isSignedIn) {
-      // show confirm popup
-      setShowConfirmLogout(true);
-    } else {
-      void handleSignIn();
-    }
-  };
-
-  // ✅ Confirm sign out
-  const handleConfirmSignOut = async () => {
+  // 🔴 SIGN OUT handler: ends work session + logs out app
+  const handleConfirmSignOut = useCallback(async () => {
     if (loading) return;
 
     try {
       setLoading(true);
 
-      // if we have an id, tell backend to close it; otherwise just do local cleanup
       if (sessionId) {
         await apiClient.post(`${LOGIN_API_BASE}/end`, {
           sessionId,
@@ -161,7 +149,8 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
       setSignInDateTime(null);
       setSessionId(null);
       localStorage.removeItem("userSession");
-      onLogout();
+      onSessionChange?.(false); // ✅ tell parent work session ended
+      onLogout(); // 🔥 fully log out (JWT) too
     } catch (err) {
       console.error("Failed to sign out:", err);
       alert("Failed to end session. Check console or backend.");
@@ -169,7 +158,36 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
       setLoading(false);
       setShowConfirmLogout(false);
     }
+  }, [loading, sessionId, onLogout, onSessionChange]);
+
+  // Toggle button
+  const handleClickToggle = () => {
+    if (loading) return;
+    if (isSignedIn) {
+      setShowConfirmLogout(true);
+    } else {
+      void handleSignIn();
+    }
   };
+
+  // ⏱️ AUTO TIMEOUT: sign out after 30 minutes
+  useEffect(() => {
+    if (!isSignedIn || !signInDateTime) return;
+
+    const TIMEOUT_MS = 30 * 60 * 1000;
+
+    const checkAndLogout = () => {
+      const elapsed = Date.now() - signInDateTime.getTime();
+      if (elapsed >= TIMEOUT_MS) {
+        void handleConfirmSignOut();
+      }
+    };
+
+    checkAndLogout();
+    const id = window.setInterval(checkAndLogout, 60 * 1000);
+
+    return () => window.clearInterval(id);
+  }, [isSignedIn, signInDateTime, handleConfirmSignOut]);
 
   const handleCancelSignOut = () => {
     if (loading) return;
@@ -178,7 +196,7 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
 
   return (
     <>
-      {/* TOP BAR */}
+      {/* TOP BAR (unchanged visually) */}
       <div className="w-full bg-gradient-to-r from-white via-slate-50 to-slate-100 border-b border-slate-200 shadow-sm">
         <div className="mx-auto px-4 sm:px-6 py-3 flex items-center gap-2">
           {/* LEFT: Clock */}
@@ -260,7 +278,7 @@ const UserSessionBar: React.FC<UserSessionBarProps> = ({
         </div>
       </div>
 
-      {/* LOGOUT CONFIRM MODAL */}
+      {/* LOGOUT CONFIRM MODAL (unchanged) */}
       {showConfirmLogout && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm">
           <div className="bg-white w-full max-w-sm mx-4 rounded-2xl shadow-xl border border-slate-200 p-5">

@@ -1,10 +1,11 @@
 import React, { useState } from "react";
 import axios, { AxiosError } from "axios";
 import { API_BASE } from "./apiConfig";
+import { showToast } from "./Toast"; // ✅ Import toast helper
 
 interface RegisterFormProps {
   onSwitchToLogin: () => void;
-  onSuccess: (username: string) => void; // sends username to parent
+  onSuccess: (username: string) => void;
 }
 
 const RegisterForm: React.FC<RegisterFormProps> = ({
@@ -17,62 +18,74 @@ const RegisterForm: React.FC<RegisterFormProps> = ({
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSuccess("");
 
     if (password !== confirmPassword) {
-      setError("Passwords do not match");
+      const msg = "Passwords do not match";
+      setError(msg);
+      showToast.error(msg); // ❌ toast
       return;
     }
     if (password.length < 6) {
-      setError("Password must be at least 6 characters");
+      const msg = "Password must be at least 6 characters";
+      setError(msg);
+      showToast.error(msg); // ❌ toast
       return;
     }
 
     setLoading(true);
 
     try {
-      console.log("Register data:", { name, email, password });
-
       const { data } = await axios.post(
         `${API_BASE}/api/auth/register`,
         { name, email, password },
         { headers: { "Content-Type": "application/json" } }
       );
 
-      console.log("✅ Register success:", data);
+      const user = data.user;
 
-      // Save token from backend
+      const requiresApproval =
+        data.requiresApproval === true ||
+        user?.isApproved === false ||
+        user?.status === "pending";
+
+      if (requiresApproval) {
+        const msg = "Account created. Waiting for admin approval before login.";
+        setSuccess(msg);
+        showToast.info(msg); // ℹ️ toast
+
+        return;
+      }
+
+      // --- Immediate auto-login for approved accounts ---
       if (data.token) {
         localStorage.setItem("token", data.token);
       }
-
-      // 🔐 Save role ("user" / "admin") if backend sends it
       if (data.user?.role) {
         localStorage.setItem("role", data.user.role);
       }
 
-      // Prefer backend name, fallback to what user typed
       const username =
         data.user?.name || name.trim() || email.split("@")[0] || "New User";
 
+      showToast.success("Account created successfully!"); // ✅ toast
       onSuccess(username);
     } catch (err) {
       console.error("❌ Register failed:", err);
-
       const axiosErr = err as AxiosError<any>;
-      if (axiosErr.response) {
-        setError(
-          axiosErr.response.data?.message ||
-            `Registration failed (${axiosErr.response.status}).`
-        );
-      } else if (axiosErr.request) {
-        setError("No response from server. Is the API running?");
-      } else {
-        setError("Unexpected error during registration.");
-      }
+
+      let msg =
+        axiosErr.response?.data?.message ||
+        axiosErr.message ||
+        "Unexpected error during registration.";
+
+      setError(msg);
+      showToast.error(msg); // ❌ toast
     } finally {
       setLoading(false);
     }
@@ -141,6 +154,7 @@ const RegisterForm: React.FC<RegisterFormProps> = ({
       </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {success && <p className="text-sm text-green-600">{success}</p>}
 
       <button
         type="submit"

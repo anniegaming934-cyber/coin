@@ -7,9 +7,10 @@ import GameEntry, {
 } from "../models/GameEntry.js";
 import GameEntryHistory from "../models/GameEntryHistory.js";
 import Game from "../models/Game.js"; // for totalCoins updates
+import { requireAuth } from "../middleware/auth.js"; // your JWT check
 
 const router = express.Router();
-
+router.use(requireAuth);
 // Ensure DB for all routes here
 router.use(async (_req, res, next) => {
   try {
