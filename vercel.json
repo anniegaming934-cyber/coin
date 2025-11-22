@@ -1,9 +1,10 @@
 {
   "version": 2,
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/(.*)",
-      "dest": "/api/index.js"
-    }
+      "source": "/api/(.*)",
+      "destination": "https://YOUR-BACKEND-URL.com/api/$1"
+    },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
