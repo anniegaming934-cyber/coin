@@ -322,18 +322,7 @@ const AdminUserActivityTable: React.FC = () => {
         );
       },
     },
-    {
-      accessorKey: "email",
-      header: "Email",
-      cell: ({ row }) => {
-        const { email } = row.original;
-        return (
-          <span className="text-xs text-gray-700">
-            {email || <span className="italic text-gray-400">no email</span>}
-          </span>
-        );
-      },
-    },
+
     {
       accessorKey: "lastLogin",
       header: "Checked In",
