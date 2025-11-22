@@ -16,13 +16,37 @@ router.use(async (_req, res, next) => {
   }
 });
 
+// Helper: format any session consistently + add isOnline flag
+function formatSession(s) {
+  const signIn = s.signInAt ? new Date(s.signInAt).toISOString() : null;
+  const signOut = s.signOutAt ? new Date(s.signOutAt).toISOString() : null;
+
+  const isOnline = signIn && !signOut; // 👈 ONLINE condition
+
+  return {
+    _id: String(s._id),
+    username: s.username,
+    email: s.email || null,
+    signInAt: signIn,
+    signOutAt: signOut,
+    isOnline, // 👈 NEW
+    createdAt:
+      s.createdAt && s.createdAt.toISOString
+        ? s.createdAt.toISOString()
+        : undefined,
+    updatedAt:
+      s.updatedAt && s.updatedAt.toISOString
+        ? s.updatedAt.toISOString()
+        : undefined,
+  };
+}
+
 /**
  * 🟢 POST /api/logins/start
- * Body: { username, signInAt }
- * Used by UserSessionBar when user clicks "Sign In"
+ * Body: { username, email?, signInAt }
  */
 router.post("/start", async (req, res) => {
-  const { username, signInAt } = req.body;
+  const { username, email, signInAt } = req.body;
 
   if (!username || typeof username !== "string") {
     return res.status(400).json({ message: "username is required" });
@@ -30,23 +54,16 @@ router.post("/start", async (req, res) => {
 
   const session = await LoginSession.create({
     username,
+    email: email || null, // store email also
     signInAt: signInAt ? new Date(signInAt) : new Date(),
   });
 
-  res.status(201).json({
-    _id: String(session._id),
-    username: session.username,
-    signInAt: session.signInAt.toISOString(),
-    signOutAt: session.signOutAt ? session.signOutAt.toISOString() : null,
-    createdAt: session.createdAt?.toISOString?.() ?? undefined,
-    updatedAt: session.updatedAt?.toISOString?.() ?? undefined,
-  });
+  res.status(201).json(formatSession(session));
 });
 
 /**
  * 🔴 POST /api/logins/end
  * Body: { sessionId, signOutAt }
- * Used by UserSessionBar when user clicks "Sign Out"
  */
 router.post("/end", async (req, res) => {
   try {
@@ -64,15 +81,7 @@ router.post("/end", async (req, res) => {
     session.signOutAt = signOutAt ? new Date(signOutAt) : new Date();
     await session.save();
 
-    return res.json({
-      message: "Session ended successfully",
-      _id: String(session._id),
-      username: session.username,
-      signInAt: session.signInAt.toISOString(),
-      signOutAt: session.signOutAt.toISOString(),
-      createdAt: session.createdAt?.toISOString?.() ?? undefined,
-      updatedAt: session.updatedAt?.toISOString?.() ?? undefined,
-    });
+    return res.json(formatSession(session));
   } catch (err) {
     console.error("Error in POST /api/logins/end:", err);
     res
@@ -84,9 +93,8 @@ router.post("/end", async (req, res) => {
 /**
  * 🧾 GET /api/logins
  * Optional:
- *   ?username=admin   -> filter by username
- *   ?latest=1         -> only latest session (per username filter)
- * Used by AdminUserActivityTable
+ *   ?username=foo     -> filter by username
+ *   ?latest=1         -> only latest session
  */
 router.get("/", async (req, res) => {
   try {
@@ -99,7 +107,6 @@ router.get("/", async (req, res) => {
 
     let query = LoginSession.find(filter).sort({ signInAt: -1 });
 
-    // If latest=1, only return the most recent session
     if (latest === "1" || latest === "true") {
       query = query.limit(1);
     } else {
@@ -107,22 +114,7 @@ router.get("/", async (req, res) => {
     }
 
     const sessions = await query.lean();
-
-    const formatted = sessions.map((s) => ({
-      _id: String(s._id),
-      username: s.username,
-      email: s.email || null, // <--- ADDED HERE
-      signInAt: s.signInAt ? new Date(s.signInAt).toISOString() : null,
-      signOutAt: s.signOutAt ? new Date(s.signOutAt).toISOString() : null,
-      createdAt:
-        s.createdAt && s.createdAt.toISOString
-          ? s.createdAt.toISOString()
-          : undefined,
-      updatedAt:
-        s.updatedAt && s.updatedAt.toISOString
-          ? s.updatedAt.toISOString()
-          : undefined,
-    }));
+    const formatted = sessions.map(formatSession);
 
     console.log(
       "📜 GET /api/logins => filter:",
@@ -130,7 +122,6 @@ router.get("/", async (req, res) => {
       "count:",
       formatted.length
     );
-
     res.json(formatted);
   } catch (err) {
     console.error("Error in GET /api/logins:", err);
@@ -140,6 +131,10 @@ router.get("/", async (req, res) => {
   }
 });
 
+/**
+ * 🧾 GET /api/logins/:username
+ * Returns only the *latest* session for this user
+ */
 router.get("/:username", async (req, res) => {
   try {
     const { username } = req.params;
@@ -149,7 +144,7 @@ router.get("/:username", async (req, res) => {
     }
 
     const session = await LoginSession.findOne({ username })
-      .sort({ signInAt: -1 }) // latest session
+      .sort({ signInAt: -1 })
       .lean();
 
     if (!session) {
@@ -158,27 +153,20 @@ router.get("/:username", async (req, res) => {
         .json({ message: "No session found for this user" });
     }
 
-    const formatted = {
-      _id: String(session._id),
-      username: session.username,
-      signInAt: session.signInAt
-        ? new Date(session.signInAt).toISOString()
-        : null,
-      signOutAt: session.signOutAt
-        ? new Date(session.signOutAt).toISOString()
-        : null,
-      createdAt: session.createdAt?.toISOString?.() ?? undefined,
-      updatedAt: session.updatedAt?.toISOString?.() ?? undefined,
-    };
-
-    res.json(formatted);
+    res.json(formatSession(session));
   } catch (err) {
     console.error("Error in GET /api/logins/:username:", err);
-    res
-      .status(500)
-      .json({ message: "Failed to load user session", error: err.message });
+    res.status(500).json({
+      message: "Failed to load user session",
+      error: err.message,
+    });
   }
 });
+
+/**
+ * 🗑️ DELETE /api/logins/user/:username
+ * Delete all login records for this user
+ */
 router.delete("/user/:username", async (req, res) => {
   try {
     const { username } = req.params;
@@ -187,11 +175,6 @@ router.delete("/user/:username", async (req, res) => {
     }
 
     const result = await LoginSession.deleteMany({ username });
-
-    console.log(
-      `🗑️ DELETE /api/logins/user/${username} -> deleted count:`,
-      result.deletedCount
-    );
 
     res.json({
       message: "User login activity deleted",
@@ -206,4 +189,5 @@ router.delete("/user/:username", async (req, res) => {
     });
   }
 });
+
 export default router;

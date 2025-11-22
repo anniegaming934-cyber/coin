@@ -15,6 +15,7 @@ const router = express.Router();
  *   app.use("/api/admin/users", adminUsersRouter);
  * so this handler is for path "/".
  */
+// GET /api/admin/users
 router.get("/", requireAuth, requireAdmin, async (req, res) => {
   try {
     const { status } = req.query;
@@ -35,11 +36,12 @@ router.get("/", requireAuth, requireAdmin, async (req, res) => {
       return res.json([]);
     }
 
+    // 1) Build username list
     const usernames = users
       .map((u) => (u.username ? String(u.username).trim() : ""))
       .filter(Boolean);
 
-    // 👇 use username OR createdBy, and group by "effectiveUsername"
+    // 2) Aggregate totals from GameEntry (by "effectiveUsername")
     const totalsAgg = await GameEntry.aggregate([
       {
         $match: {
@@ -100,41 +102,69 @@ router.get("/", requireAuth, requireAdmin, async (req, res) => {
       };
     }
 
-    const enhanced = await Promise.all(
-      users.map(async (u) => {
-        const base = { ...u };
+    // 3) Get latest session PER USER in ONE query
+    const sessionsAgg = await LoginSession.aggregate([
+      {
+        $match: {
+          username: { $in: usernames },
+        },
+      },
+      // sort so that $first gives the latest signInAt
+      { $sort: { signInAt: -1 } },
+      {
+        $group: {
+          _id: "$username",
+          lastSignInAt: { $first: "$signInAt" },
+          lastSignOutAt: { $first: "$signOutAt" },
+        },
+      },
+    ]);
 
-        const totals = totalsByUser[u.username] || {
-          totalDeposit: 0,
-          totalRedeem: 0,
-          totalFreeplay: 0,
-        };
+    const sessionsByUser = {};
+    for (const row of sessionsAgg) {
+      sessionsByUser[row._id] = {
+        lastSignInAt: row.lastSignInAt || null,
+        lastSignOutAt: row.lastSignOutAt || null,
+      };
+    }
 
-        base.totalDeposit = totals.totalDeposit;
-        base.totalRedeem = totals.totalRedeem;
-        base.totalFreeplay = totals.totalFreeplay;
+    // 4) Merge: users + totals + latest sessions + isOnline flag
+    const enhanced = users.map((u) => {
+      const base = { ...u };
 
-        // define totalPayments as you like – here: total cash out
-        base.totalPayments = totals.totalRedeem || 0;
+      const totals = totalsByUser[u.username] || {
+        totalDeposit: 0,
+        totalRedeem: 0,
+        totalFreeplay: 0,
+      };
 
-        if (u.username) {
-          const latestSession = await LoginSession.findOne({
-            username: u.username,
-          })
-            .sort({ signInAt: -1 })
-            .lean();
+      base.totalDeposit = totals.totalDeposit;
+      base.totalRedeem = totals.totalRedeem;
+      base.totalFreeplay = totals.totalFreeplay;
 
-          if (latestSession) {
-            base.lastSignInAt =
-              latestSession.signInAt || base.lastSignInAt || null;
-            base.lastSignOutAt =
-              latestSession.signOutAt || base.lastSignOutAt || null;
-          }
+      // your previous logic
+      base.totalPayments = totals.totalRedeem || 0;
+
+      const session = sessionsByUser[u.username];
+      let isOnline = false;
+
+      if (session) {
+        const lastSignInAt = session.lastSignInAt || null;
+        const lastSignOutAt = session.lastSignOutAt || null;
+
+        base.lastSignInAt = lastSignInAt || base.lastSignInAt || null;
+        base.lastSignOutAt = lastSignOutAt || base.lastSignOutAt || null;
+
+        // ✅ ONLINE if we have a sign-in and NO sign-out yet
+        if (lastSignInAt && !lastSignOutAt) {
+          isOnline = true;
         }
+      }
 
-        return base;
-      })
-    );
+      base.isOnline = isOnline; // 👈 your new flag
+
+      return base;
+    });
 
     res.json(enhanced);
   } catch (err) {
