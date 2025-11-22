@@ -2,26 +2,35 @@ import React, { useEffect, useState } from "react";
 import { apiClient } from "../apiConfig";
 import { User, Pencil, Trash2, KeyRound, X, Save, Loader2 } from "lucide-react";
 import DeleteConfirmDialog from "../DeleteConfirmDialog";
+import {
+  ColumnDef,
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
 
-// apiClient baseURL should already include /api
 const API_BASE = "/api/logins";
+
 // Raw shape from backend
 interface RawActivity {
   _id: string;
   username: string;
-  signInAt: string;
+  email?: string | null;
+  signInAt: string | null;
   signOutAt: string | null;
-  createdAt: string;
-  updatedAt: string;
-  __v: number;
+  isOnline?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
-// Normalized, unique per username
-interface UserRow {
+// Normalized, unique per username (latest session)
+export interface UserRow {
   id: string;
   username: string;
+  email: string | null;
   lastLogin: string | null;
   lastLogout: string | null;
+  isOnline: boolean;
 }
 
 const AdminUserActivityTable: React.FC = () => {
@@ -66,11 +75,19 @@ const AdminUserActivityTable: React.FC = () => {
     const loginIso = normalizeDateValue(r.signInAt);
     const logoutIso = normalizeDateValue(r.signOutAt);
 
+    // Prefer backend isOnline, but we can also infer
+    let isOnline = !!r.isOnline;
+    if (!r.isOnline && loginIso && !logoutIso) {
+      isOnline = true;
+    }
+
     return {
       id: r._id,
       username: r.username,
+      email: r.email ?? null,
       lastLogin: loginIso,
       lastLogout: logoutIso,
+      isOnline,
     };
   };
 
@@ -79,7 +96,8 @@ const AdminUserActivityTable: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      const { data } = await apiClient.get(`${API_BASE}/?username`);
+      // ✅ just get all sessions (up to 200), no weird "?username" with no value
+      const { data } = await apiClient.get<RawActivity[]>(API_BASE);
 
       const map = new Map<string, UserRow>();
 
@@ -140,7 +158,6 @@ const AdminUserActivityTable: React.FC = () => {
     });
   };
 
-  // Optional time (if you still want it)
   const formatTime = (iso: string | null): string => {
     if (!iso) return "";
     const d = new Date(iso);
@@ -151,16 +168,16 @@ const AdminUserActivityTable: React.FC = () => {
     });
   };
 
-  // Compute status from login/logout
   const getStatus = (u: UserRow): "online" | "offline" => {
+    if (u.isOnline) return "online"; // ✅ trust backend isOnline
     if (!u.lastLogin) return "offline";
-    if (!u.lastLogout) return "online"; // never logged out
+    if (!u.lastLogout) return "online";
     const loginTime = new Date(u.lastLogin).getTime();
     const logoutTime = new Date(u.lastLogout).getTime();
     return logoutTime < loginTime ? "online" : "offline";
   };
 
-  const renderStatus = (u: UserRow) => {
+  const renderStatusPill = (u: UserRow) => {
     const status = getStatus(u);
     const label = status === "online" ? "Online" : "Offline";
     const pillClass =
@@ -198,7 +215,7 @@ const AdminUserActivityTable: React.FC = () => {
 
     try {
       setSavingEdit(true);
-      // TODO: call real API for updating username
+      // TODO: call real API for updating username in LoginSession + main User model
       console.log("Update username:", editingUser.username, "→", editUsername);
 
       setUsers((prev) =>
@@ -223,13 +240,20 @@ const AdminUserActivityTable: React.FC = () => {
   const handleConfirmDelete = async () => {
     if (!selectedUser) return;
     setIsDeleting(true);
+    setError(null);
 
     try {
-      // TODO: call real delete endpoint, e.g. /logins/:id
-      console.log("Delete activity for:", selectedUser.username);
-      setUsers((prev) => prev.filter((u) => u.id !== selectedUser.id));
+      // ✅ matches your backend: DELETE /api/logins/user/:username
+      await apiClient.delete(
+        `${API_BASE}/user/${encodeURIComponent(selectedUser.username)}`
+      );
+
+      setUsers((prev) =>
+        prev.filter((u) => u.username !== selectedUser.username)
+      );
     } catch (err) {
-      console.error("Failed to delete user:", err);
+      console.error("Failed to delete user activity:", err);
+      setError("Failed to delete user activity.");
     } finally {
       setIsDeleting(false);
       setIsDialogOpen(false);
@@ -277,6 +301,124 @@ const AdminUserActivityTable: React.FC = () => {
     }
   };
 
+  // ---------- React Table setup ----------
+  const columns: ColumnDef<UserRow>[] = [
+    {
+      id: "index",
+      header: "#",
+      cell: (info) => info.row.index + 1,
+      size: 40,
+    },
+    {
+      accessorKey: "username",
+      header: "User",
+      cell: ({ row }) => {
+        const u = row.original;
+        return (
+          <div className="flex items-center gap-2">
+            <User className="h-4 w-4 text-indigo-500" />
+            <span className="font-medium text-gray-800">{u.username}</span>
+          </div>
+        );
+      },
+    },
+    {
+      accessorKey: "email",
+      header: "Email",
+      cell: ({ row }) => {
+        const { email } = row.original;
+        return (
+          <span className="text-xs text-gray-700">
+            {email || <span className="italic text-gray-400">no email</span>}
+          </span>
+        );
+      },
+    },
+    {
+      accessorKey: "lastLogin",
+      header: "Checked In",
+      cell: ({ row }) => {
+        const u = row.original;
+        return (
+          <div className="flex flex-col text-gray-800">
+            <span className="text-sm font-medium">
+              {formatPrettyDate(u.lastLogin)}
+            </span>
+            <span className="text-xs text-gray-500">
+              {formatTime(u.lastLogin)}
+            </span>
+          </div>
+        );
+      },
+    },
+    {
+      accessorKey: "lastLogout",
+      header: "Checked Out",
+      cell: ({ row }) => {
+        const u = row.original;
+        return (
+          <div className="flex flex-col text-gray-800">
+            <span className="text-sm font-medium">
+              {formatPrettyDate(u.lastLogout)}
+            </span>
+            <span className="text-xs text-gray-500">
+              {formatTime(u.lastLogout)}
+            </span>
+          </div>
+        );
+      },
+    },
+    {
+      id: "status",
+      header: "Status",
+      cell: ({ row }) => renderStatusPill(row.original),
+    },
+    {
+      id: "actions",
+      header: () => <div className="text-right">Actions</div>,
+      cell: ({ row }) => {
+        const u = row.original;
+        const isThisDeleting =
+          isDeleting && selectedUser && selectedUser.username === u.username;
+
+        return (
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={() => openEdit(u)}
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-100"
+            >
+              <Pencil className="h-3 w-3" />
+              Edit
+            </button>
+            <button
+              onClick={() => openResetPw(u)}
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-amber-500 text-white hover:bg-amber-600"
+            >
+              <KeyRound className="h-3 w-3" />
+              Reset PW
+            </button>
+            <button
+              onClick={() => handleDeleteClick(u)}
+              disabled={isDeleting}
+              className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-red-500 text-white hover:bg-red-600 disabled:opacity-60"
+            >
+              <Trash2 className="h-3 w-3" />
+              {isThisDeleting ? "Deleting..." : "Delete"}
+            </button>
+          </div>
+        );
+      },
+    },
+  ];
+
+  const table = useReactTable({
+    data: users,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+  });
+
+  const visibleRows = table.getRowModel().rows;
+
   return (
     <div className="bg-white rounded-xl shadow-sm p-4">
       {/* Header */}
@@ -308,97 +450,59 @@ const AdminUserActivityTable: React.FC = () => {
         </div>
       )}
 
+      {/* React Table */}
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm border border-gray-200">
           <thead className="bg-gray-100 text-gray-700 font-semibold">
-            <tr>
-              <th className="px-4 py-2 text-left">#</th>
-              <th className="px-4 py-2 text-left">User</th>
-              <th className="px-4 py-2 text-left">Checked In</th>
-              <th className="px-4 py-2 text-left">Checked Out</th>
-              <th className="px-4 py-2 text-left">Status</th>
-              <th className="px-4 py-2 text-right">Actions</th>
-            </tr>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <tr key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <th
+                    key={header.id}
+                    className={`px-4 py-2 text-left ${
+                      header.id === "actions" ? "text-right" : ""
+                    }`}
+                  >
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(
+                          header.column.columnDef.header,
+                          header.getContext()
+                        )}
+                  </th>
+                ))}
+              </tr>
+            ))}
           </thead>
           <tbody>
-            {users.length === 0 ? (
+            {visibleRows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={columns.length}
                   className="text-center text-gray-500 py-6 italic"
                 >
                   {loading ? "Loading..." : "No users with activity found."}
                 </td>
               </tr>
             ) : (
-              users.map((u, idx) => (
+              visibleRows.map((row) => (
                 <tr
-                  key={u.id}
+                  key={row.id}
                   className="border-t hover:bg-gray-50 transition-colors"
                 >
-                  <td className="px-4 py-2">{idx + 1}</td>
-
-                  {/* Username */}
-                  <td className="px-4 py-2">
-                    <div className="flex items-center gap-2">
-                      <User className="h-4 w-4 text-indigo-500" />
-                      <span className="font-medium text-gray-800">
-                        {u.username}
-                      </span>
-                    </div>
-                  </td>
-
-                  {/* Last Checked (pretty date + small time) */}
-                  <td className="px-4 py-2 align-top">
-                    <div className="flex flex-col text-gray-800">
-                      <span className="text-sm font-medium">
-                        {formatPrettyDate(u.lastLogin)}
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        {formatTime(u.lastLogin)}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-2 align-top">
-                    <div className="flex flex-col text-gray-800">
-                      <span className="text-sm font-medium">
-                        {formatPrettyDate(u?.lastLogout)}
-                      </span>
-                      <span className="text-xs text-gray-500">
-                        {formatTime(u?.lastLogout)}
-                      </span>
-                    </div>
-                  </td>
-
-                  {/* Status pill */}
-                  <td className="px-4 py-2">{renderStatus(u)}</td>
-
-                  {/* Actions */}
-                  <td className="px-4 py-2">
-                    <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => openEdit(u)}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded border border-gray-300 text-gray-700 hover:bg-gray-100"
-                      >
-                        <Pencil className="h-3 w-3" />
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => openResetPw(u)}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-amber-500 text-white hover:bg-amber-600"
-                      >
-                        <KeyRound className="h-3 w-3" />
-                        Reset PW
-                      </button>
-                      <button
-                        onClick={() => handleDeleteClick(u)}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded bg-red-500 text-white hover:bg-red-600"
-                      >
-                        <Trash2 className="h-3 w-3" />
-                        Delete
-                      </button>
-                    </div>
-                  </td>
+                  {row.getVisibleCells().map((cell) => (
+                    <td
+                      key={cell.id}
+                      className={`px-4 py-2 ${
+                        cell.column.id === "actions" ? "text-right" : ""
+                      }`}
+                    >
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext()
+                      )}
+                    </td>
+                  ))}
                 </tr>
               ))
             )}
@@ -491,7 +595,10 @@ const AdminUserActivityTable: React.FC = () => {
             </div>
 
             <div className="space-y-1 text-sm">
-              <p className="font-medium">{pwUser.username}</p>
+              <p className="font-medium">
+                {pwUser.username}
+                {pwUser.email ? ` (${pwUser.email})` : ""}
+              </p>
             </div>
 
             {resetError && (
