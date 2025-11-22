@@ -1,11 +1,13 @@
 // src/App.tsx
 import { useEffect, useState, type FC } from "react";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import AuthCard from "./AuthCard";
 import UserDashboard from "./user/UserDashboard";
 import AdminDashboard from "./admin/AdminDashboard";
 import { apiClient } from "./apiConfig";
+import NotFoundPage from "./NotFoundPage";
 
-const App: FC = () => {
+const MainApp: FC = () => {
   const [isAuthed, setIsAuthed] = useState(false);
   const [username, setUsername] = useState<string>("");
   const [checkingAuth, setCheckingAuth] = useState(true);
@@ -110,6 +112,24 @@ const App: FC = () => {
     <AdminDashboard username={username} onLogout={handleLogout} />
   ) : (
     <UserDashboard username={username} onLogout={handleLogout} />
+  );
+};
+
+const App: FC = () => {
+  return (
+    <BrowserRouter>
+      <Routes>
+        {/* main app (auth + dashboards) */}
+        <Route path="/" element={<MainApp />} />
+
+        {/* you can add more routes later, e.g.:
+        <Route path="/login" element={<AuthCard ... />} />
+        */}
+
+        {/* 🌈 Animated 404 for everything else */}
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </BrowserRouter>
   );
 };
 
