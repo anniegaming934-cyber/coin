@@ -67,8 +67,8 @@ const FacebookLeadForm: React.FC = () => {
     setError("");
     setSuccess("");
 
-    if (!name.trim() || !email.trim()) {
-      setError("Name and email are required");
+    if (!name.trim()) {
+      setError("Name are required");
       return;
     }
 
