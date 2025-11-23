@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import Select, { MultiValue } from "react-select";
 import { apiClient } from "../apiConfig";
 
 type ScheduleItem = {
@@ -25,6 +26,13 @@ const days = [
   "Sunday",
 ];
 
+type DayOption = {
+  value: string;
+  label: string;
+};
+
+const dayOptions: DayOption[] = days.map((d) => ({ value: d, label: d }));
+
 const hours12 = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
 const minutes = ["00", "15", "30", "45"];
 const ampmOptions = ["AM", "PM"] as const;
@@ -37,8 +45,8 @@ const ScheduleForm: React.FC = () => {
   // username (single)
   const [username, setUsername] = useState("");
 
-  // days (multi-select)
-  const [selectedDays, setSelectedDays] = useState<string[]>([]);
+  // days (react-select multi)
+  const [selectedDays, setSelectedDays] = useState<DayOption[]>([]);
 
   // shift
   const [shift, setShift] = useState<"morning" | "day" | "evening" | "night">(
@@ -147,9 +155,8 @@ const ScheduleForm: React.FC = () => {
     setScheduleError("");
   };
 
-  const handleDayMultiSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const options = Array.from(e.target.selectedOptions).map((o) => o.value);
-    setSelectedDays(options);
+  const handleDaysChange = (newValue: MultiValue<DayOption>) => {
+    setSelectedDays(newValue as DayOption[]);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -169,13 +176,14 @@ const ScheduleForm: React.FC = () => {
 
     const startTime = buildTimeString(startHour, startMinute, startAmPm);
     const endTime = buildTimeString(endHour, endMinute, endAmPm);
+    const selectedDayValues = selectedDays.map((d) => d.value);
 
     try {
       setSaving(true);
 
       if (editingId) {
         // For editing, use the first selected day
-        const day = selectedDays[0];
+        const day = selectedDayValues[0];
 
         const res = await apiClient.put<ScheduleItem>(
           `/api/schedules/${editingId}`,
@@ -195,7 +203,7 @@ const ScheduleForm: React.FC = () => {
         // Create one schedule per selected day
         const createdItems: ScheduleItem[] = [];
 
-        for (const d of selectedDays) {
+        for (const d of selectedDayValues) {
           const res = await apiClient.post<ScheduleItem>("/api/schedules", {
             username,
             day: d,
@@ -221,7 +229,9 @@ const ScheduleForm: React.FC = () => {
   const handleEdit = (item: ScheduleItem) => {
     setEditingId(item._id);
     setUsername(item.username);
-    setSelectedDays([item.day]);
+    setSelectedDays(
+      dayOptions.filter((opt) => opt.value === item.day) // single day
+    );
     setShift(item.shift);
 
     const s = parseTimeString(item.startTime);
@@ -297,23 +307,19 @@ const ScheduleForm: React.FC = () => {
             )}
           </div>
 
-          {/* Days (multi-select) */}
+          {/* Days (react-select multi) */}
           <div className="md:col-span-1">
             <label className="block text-sm font-medium mb-1">
               Days (multi-select)
             </label>
-            <select
-              multiple
-              className="w-full border rounded-md px-2 py-1 text-sm h-24"
+            <Select
+              isMulti
+              options={dayOptions}
               value={selectedDays}
-              onChange={handleDayMultiSelect}
-            >
-              {days.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
+              onChange={handleDaysChange}
+              className="text-sm"
+              classNamePrefix="react-select"
+            />
           </div>
 
           {/* Start Time 12h */}
@@ -477,7 +483,6 @@ const ScheduleForm: React.FC = () => {
 
               return (
                 <React.Fragment key={d}>
-                  {/* Day row */}
                   <tr className="bg-gray-50">
                     <td
                       colSpan={4}
@@ -487,7 +492,6 @@ const ScheduleForm: React.FC = () => {
                     </td>
                   </tr>
 
-                  {/* Rows for that day */}
                   {dayItems.map((item) => (
                     <tr key={item._id} className="border-t">
                       <td className="px-3 py-2">{item.username}</td>
