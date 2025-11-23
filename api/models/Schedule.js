@@ -1,37 +1,32 @@
 import mongoose from "mongoose";
 
-const DAYS = [
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-  "Sunday",
-];
+const { Schema, model } = mongoose;
 
-const ScheduleSchema = new mongoose.Schema(
+const scheduleSchema = new Schema(
   {
-    username: {
-      type: String,
-      required: true, // schedule is always tied to a user
-      trim: true,
+    // multiple usernames per schedule entry
+    usernames: {
+      type: [String],
+      required: true,
     },
     day: {
       type: String,
-      enum: DAYS,
       required: true,
+      trim: true,
     },
+    // store as "09:30 AM"
     startTime: {
-      type: String, // "09:00"
+      type: String,
       required: true,
+      trim: true,
     },
     endTime: {
-      type: String, // "10:30"
+      type: String,
       required: true,
+      trim: true,
     },
     title: {
-      type: String, // "Work", "Study", ...
+      type: String,
       required: true,
       trim: true,
     },
@@ -39,4 +34,6 @@ const ScheduleSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-export default mongoose.model("Schedule", ScheduleSchema);
+const Schedule = model("Schedule", scheduleSchema);
+
+export default Schedule;

@@ -57,6 +57,38 @@ router.post("/", async (req, res) => {
 });
 
 /**
+ * PUT /api/game-logins/:id
+ * body: { gameName, loginUsername, password, gameLink? }
+ */
+router.put("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { gameName, loginUsername, password, gameLink } = req.body;
+
+    if (!gameName || !loginUsername || !password) {
+      return res.status(400).json({
+        message: "gameName, loginUsername, and password are required",
+      });
+    }
+
+    const updated = await GameLogin.findByIdAndUpdate(
+      id,
+      { gameName, loginUsername, password, gameLink },
+      { new: true }
+    );
+
+    if (!updated) {
+      return res.status(404).json({ message: "Game login not found" });
+    }
+
+    res.json(updated);
+  } catch (err) {
+    console.error("Error updating game login:", err);
+    res.status(500).json({ message: "Failed to update game login" });
+  }
+});
+
+/**
  * DELETE /api/game-logins/:id
  */
 router.delete("/:id", async (req, res) => {

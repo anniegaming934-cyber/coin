@@ -120,6 +120,33 @@ const FacebookLeadForm: React.FC = () => {
   };
 
   // ==========================
+  // Delete lead
+  // ==========================
+  const handleDelete = async (id: string) => {
+    const confirmDelete = window.confirm("Delete this lead?");
+    if (!confirmDelete) return;
+
+    setError("");
+    setSuccess("");
+
+    try {
+      await apiClient.delete(`/api/facebook-leads/${id}`);
+      // Update UI without refetch if you want:
+      setLeads((prev) => prev.filter((l) => l._id !== id));
+      // or you can call await loadLeads();
+      setSuccess("Lead deleted ✅");
+      if (editingId === id) {
+        resetForm();
+      }
+    } catch (err: any) {
+      console.error("Failed to delete lead:", err);
+      setError(
+        err?.response?.data?.message || "Failed to delete lead. Try again."
+      );
+    }
+  };
+
+  // ==========================
   // Export CSV
   // ==========================
   const handleExportCsv = () => {
@@ -256,7 +283,7 @@ const FacebookLeadForm: React.FC = () => {
             </select>
           </div>
 
-          {/* Facebook Link (full width on small, half on md) */}
+          {/* Facebook Link */}
           <div className="flex flex-col gap-1 md:col-span-2">
             <label className="text-sm font-medium">
               Facebook Profile / Link
@@ -348,13 +375,22 @@ const FacebookLeadForm: React.FC = () => {
                         : "-"}
                     </td>
                     <td className="px-3 py-2">
-                      <button
-                        type="button"
-                        onClick={() => handleEdit(lead)}
-                        className="text-xs md:text-sm px-2 py-1 rounded-md border border-blue-500 text-blue-600 hover:bg-blue-50"
-                      >
-                        Edit
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleEdit(lead)}
+                          className="text-xs md:text-sm px-2 py-1 rounded-md border border-blue-500 text-blue-600 hover:bg-blue-50"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(lead._id)}
+                          className="text-xs md:text-sm px-2 py-1 rounded-md border border-red-500 text-red-600 hover:bg-red-50"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

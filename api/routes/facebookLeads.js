@@ -41,9 +41,7 @@ router.post("/", async (req, res) => {
     const { name, email, phone, contactPreference, facebookLink } = req.body;
 
     if (!name) {
-      return res
-        .status(400)
-        .json({ message: "Both name are required" });
+      return res.status(400).json({ message: "Both name are required" });
     }
 
     const lead = await FacebookLead.create({
@@ -147,5 +145,17 @@ router.get("/export", async (_req, res) => {
       .json({ message: "Failed to export leads", error: err.message });
   }
 });
-
+router.delete("/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const deleted = await FacebookLead.findByIdAndDelete(id);
+    if (!deleted) {
+      return res.status(404).json({ message: "Lead not found" });
+    }
+    res.json({ message: "Lead deleted" });
+  } catch (err) {
+    console.error("Failed to delete lead:", err);
+    res.status(500).json({ message: "Failed to delete lead" });
+  }
+});
 export default router;

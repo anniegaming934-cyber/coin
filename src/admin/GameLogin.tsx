@@ -10,19 +10,37 @@ interface GameLogin {
   gameLink?: string;
 }
 
+interface GameLoginFormValues {
+  gameName: string;
+  loginUsername: string;
+  password: string;
+  gameLink: string;
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ""; // e.g. "https://your-backend-url";
 
+const emptyForm: GameLoginFormValues = {
+  gameName: "",
+  loginUsername: "",
+  password: "",
+  gameLink: "",
+};
+
 const GameLogins: React.FC = () => {
-  const [gameName, setGameName] = useState("");
-  const [loginUsername, setLoginUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const [gameLink, setGameLink] = useState("");
+  // Separate forms
+  const [adminForm, setAdminForm] = useState<GameLoginFormValues>(emptyForm);
+  const [userForm, setUserForm] = useState<GameLoginFormValues>(emptyForm);
 
   const [items, setItems] = useState<GameLogin[]>([]);
   const [copyMsg, setCopyMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
+  const [updating, setUpdating] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Editing state
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValues, setEditValues] = useState<GameLoginFormValues>(emptyForm);
 
   // Load existing logins on mount
   useEffect(() => {
@@ -47,12 +65,29 @@ const GameLogins: React.FC = () => {
     fetchGameLogins();
   }, []);
 
-  // Generic submit handler factory for admin/user
+  const handleFormChange = (
+    ownerType: "admin" | "user",
+    field: keyof GameLoginFormValues,
+    value: string
+  ) => {
+    if (ownerType === "admin") {
+      setAdminForm((prev) => ({ ...prev, [field]: value }));
+    } else {
+      setUserForm((prev) => ({ ...prev, [field]: value }));
+    }
+  };
+
   const handleSubmit =
     (ownerType: "admin" | "user") => async (e: FormEvent) => {
       e.preventDefault();
 
-      if (!gameName.trim() || !loginUsername.trim() || !password.trim()) {
+      const form = ownerType === "admin" ? adminForm : userForm;
+
+      if (
+        !form.gameName.trim() ||
+        !form.loginUsername.trim() ||
+        !form.password.trim()
+      ) {
         alert("Game name, username and password are required.");
         return;
       }
@@ -68,10 +103,10 @@ const GameLogins: React.FC = () => {
           },
           body: JSON.stringify({
             ownerType,
-            gameName: gameName.trim(),
-            loginUsername: loginUsername.trim(),
-            password: password.trim(),
-            gameLink: gameLink.trim() || undefined,
+            gameName: form.gameName.trim(),
+            loginUsername: form.loginUsername.trim(),
+            password: form.password.trim(),
+            gameLink: form.gameLink.trim() || undefined,
           }),
         });
 
@@ -83,11 +118,12 @@ const GameLogins: React.FC = () => {
         const created: GameLogin = await res.json();
         setItems((prev) => [created, ...prev]);
 
-        // Reset form
-        setGameName("");
-        setLoginUsername("");
-        setPassword("");
-        setGameLink("");
+        // Reset respective form
+        if (ownerType === "admin") {
+          setAdminForm(emptyForm);
+        } else {
+          setUserForm(emptyForm);
+        }
       } catch (err: any) {
         console.error(err);
         setError(err.message || "Error saving game login");
@@ -107,6 +143,18 @@ const GameLogins: React.FC = () => {
     }
   };
 
+  const handleCopyRow = (item: GameLogin) => {
+    const lines = [
+      `Game: ${item.gameName}`,
+      `Username: ${item.loginUsername}`,
+      `Password: ${item.password}`,
+    ];
+    if (item.gameLink) {
+      lines.push(`Link: ${item.gameLink}`);
+    }
+    handleCopy(lines.join("\n"), "Login info");
+  };
+
   const handleDelete = async (id: string) => {
     if (!window.confirm("Delete this login?")) return;
 
@@ -123,6 +171,76 @@ const GameLogins: React.FC = () => {
     } catch (err: any) {
       console.error(err);
       setError(err.message || "Error deleting game login");
+    }
+  };
+
+  const startEdit = (item: GameLogin) => {
+    setEditingId(item._id);
+    setEditValues({
+      gameName: item.gameName,
+      loginUsername: item.loginUsername,
+      password: item.password,
+      gameLink: item.gameLink || "",
+    });
+  };
+
+  const handleEditChange = (
+    field: keyof GameLoginFormValues,
+    value: string
+  ) => {
+    setEditValues((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditValues(emptyForm);
+  };
+
+  const saveEdit = async () => {
+    if (!editingId) return;
+
+    if (
+      !editValues.gameName.trim() ||
+      !editValues.loginUsername.trim() ||
+      !editValues.password.trim()
+    ) {
+      alert("Game name, username and password are required.");
+      return;
+    }
+
+    setUpdating(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/game-logins/${editingId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          gameName: editValues.gameName.trim(),
+          loginUsername: editValues.loginUsername.trim(),
+          password: editValues.password.trim(),
+          gameLink: editValues.gameLink.trim() || undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || "Failed to update game login");
+      }
+
+      const updated: GameLogin = await res.json();
+      setItems((prev) =>
+        prev.map((item) => (item._id === updated._id ? updated : item))
+      );
+      setEditingId(null);
+      setEditValues(emptyForm);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || "Error updating game login");
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -146,8 +264,10 @@ const GameLogins: React.FC = () => {
             <input
               type="text"
               className="rounded-md border bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={gameName}
-              onChange={(e) => setGameName(e.target.value)}
+              value={adminForm.gameName}
+              onChange={(e) =>
+                handleFormChange("admin", "gameName", e.target.value)
+              }
               placeholder="e.g. Vegas Infinity"
               required
             />
@@ -161,8 +281,10 @@ const GameLogins: React.FC = () => {
             <input
               type="text"
               className="rounded-md border bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={loginUsername}
-              onChange={(e) => setLoginUsername(e.target.value)}
+              value={adminForm.loginUsername}
+              onChange={(e) =>
+                handleFormChange("admin", "loginUsername", e.target.value)
+              }
               placeholder="e.g. prasis123"
               required
             />
@@ -176,8 +298,10 @@ const GameLogins: React.FC = () => {
             <input
               type="password"
               className="rounded-md border bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              value={adminForm.password}
+              onChange={(e) =>
+                handleFormChange("admin", "password", e.target.value)
+              }
               placeholder="********"
               required
             />
@@ -191,8 +315,10 @@ const GameLogins: React.FC = () => {
             <input
               type="url"
               className="rounded-md border bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={gameLink}
-              onChange={(e) => setGameLink(e.target.value)}
+              value={adminForm.gameLink}
+              onChange={(e) =>
+                handleFormChange("admin", "gameLink", e.target.value)
+              }
               placeholder="https://example.com/login"
             />
           </div>
@@ -230,8 +356,10 @@ const GameLogins: React.FC = () => {
             <input
               type="text"
               className="rounded-md border bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={gameName}
-              onChange={(e) => setGameName(e.target.value)}
+              value={userForm.gameName}
+              onChange={(e) =>
+                handleFormChange("user", "gameName", e.target.value)
+              }
               placeholder="e.g. Vegas Infinity"
               required
             />
@@ -245,8 +373,10 @@ const GameLogins: React.FC = () => {
             <input
               type="text"
               className="rounded-md border bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={loginUsername}
-              onChange={(e) => setLoginUsername(e.target.value)}
+              value={userForm.loginUsername}
+              onChange={(e) =>
+                handleFormChange("user", "loginUsername", e.target.value)
+              }
               placeholder="e.g. prasis123"
               required
             />
@@ -260,8 +390,10 @@ const GameLogins: React.FC = () => {
             <input
               type="password"
               className="rounded-md border bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              value={userForm.password}
+              onChange={(e) =>
+                handleFormChange("user", "password", e.target.value)
+              }
               placeholder="********"
               required
             />
@@ -275,8 +407,10 @@ const GameLogins: React.FC = () => {
             <input
               type="url"
               className="rounded-md border bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              value={gameLink}
-              onChange={(e) => setGameLink(e.target.value)}
+              value={userForm.gameLink}
+              onChange={(e) =>
+                handleFormChange("user", "gameLink", e.target.value)
+              }
               placeholder="https://example.com/login"
             />
           </div>
@@ -329,77 +463,138 @@ const GameLogins: React.FC = () => {
               </thead>
 
               <tbody>
-                {items.map((item) => (
-                  <tr
-                    key={item._id}
-                    className="border-b last:border-0 hover:bg-gray-50"
-                  >
-                    <td className="py-2 pr-4 text-gray-900">{item.gameName}</td>
-                    <td className="py-2 pr-4 text-gray-900">
-                      {item.loginUsername}
-                    </td>
-                    <td className="py-2 pr-4">
-                      <span className="tracking-widest text-gray-700">
-                        ••••••••
-                      </span>
-                    </td>
-                    <td className="py-2 pr-4">
-                      {item.gameLink ? (
-                        <a
-                          href={item.gameLink}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="underline text-blue-600 hover:text-blue-800"
-                        >
-                          Open
-                        </a>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="py-2 pr-4 text-gray-700">
-                      {item.ownerType}
-                    </td>
+                {items.map((item) => {
+                  const isEditing = editingId === item._id;
 
-                    <td className="py-2 pr-4">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() =>
-                            handleCopy(item.loginUsername, "Username")
-                          }
-                          className="rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-100"
-                        >
-                          Copy user
-                        </button>
-
-                        <button
-                          onClick={() => handleCopy(item.password, "Password")}
-                          className="rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-100"
-                        >
-                          Copy pass
-                        </button>
-
-                        {item.gameLink && (
-                          <button
-                            onClick={() =>
-                              handleCopy(item.gameLink!, "Game link")
+                  if (isEditing) {
+                    return (
+                      <tr
+                        key={item._id}
+                        className="border-b last:border-0 bg-yellow-50"
+                      >
+                        <td className="py-2 pr-4">
+                          <input
+                            type="text"
+                            className="w-full rounded-md border px-2 py-1 text-sm"
+                            value={editValues.gameName}
+                            onChange={(e) =>
+                              handleEditChange("gameName", e.target.value)
                             }
+                          />
+                        </td>
+                        <td className="py-2 pr-4">
+                          <input
+                            type="text"
+                            className="w-full rounded-md border px-2 py-1 text-sm"
+                            value={editValues.loginUsername}
+                            onChange={(e) =>
+                              handleEditChange("loginUsername", e.target.value)
+                            }
+                          />
+                        </td>
+                        <td className="py-2 pr-4">
+                          <input
+                            type="text"
+                            className="w-full rounded-md border px-2 py-1 text-sm"
+                            value={editValues.password}
+                            onChange={(e) =>
+                              handleEditChange("password", e.target.value)
+                            }
+                          />
+                        </td>
+                        <td className="py-2 pr-4">
+                          <input
+                            type="text"
+                            className="w-full rounded-md border px-2 py-1 text-sm"
+                            value={editValues.gameLink}
+                            onChange={(e) =>
+                              handleEditChange("gameLink", e.target.value)
+                            }
+                          />
+                        </td>
+                        <td className="py-2 pr-4 text-gray-700">
+                          {item.ownerType}
+                        </td>
+                        <td className="py-2 pr-4">
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              onClick={saveEdit}
+                              disabled={updating}
+                              className="rounded border px-2 py-1 text-xs text-green-700 border-green-400 hover:bg-green-50 disabled:opacity-60"
+                            >
+                              {updating ? "Saving..." : "Save"}
+                            </button>
+                            <button
+                              onClick={cancelEdit}
+                              className="rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-100"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return (
+                    <tr
+                      key={item._id}
+                      className="border-b last:border-0 hover:bg-gray-50"
+                    >
+                      <td className="py-2 pr-4 text-gray-900">
+                        {item.gameName}
+                      </td>
+                      <td className="py-2 pr-4 text-gray-900">
+                        {item.loginUsername}
+                      </td>
+                      <td className="py-2 pr-4 text-gray-900">
+                        {item.password}
+                      </td>
+                      <td className="py-2 pr-4">
+                        {item.gameLink ? (
+                          <a
+                            href={item.gameLink}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline text-blue-600 hover:text-blue-800"
+                          >
+                            Open
+                          </a>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="py-2 pr-4 text-gray-700">
+                        {item.ownerType}
+                      </td>
+
+                      <td className="py-2 pr-4">
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => startEdit(item)}
                             className="rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-100"
                           >
-                            Copy link
+                            Edit
                           </button>
-                        )}
 
-                        <button
-                          onClick={() => handleDelete(item._id)}
-                          className="rounded border px-2 py-1 text-xs text-red-600 border-red-400 hover:bg-red-50"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          <button
+                            onClick={() => handleCopyRow(item)}
+                            className="rounded border px-2 py-1 text-xs text-gray-700 hover:bg-gray-100"
+                          >
+                            Copy
+                          </button>
+
+                          <button
+                            onClick={() => handleDelete(item._id)}
+                            className="rounded border px-2 py-1 text-xs text-red-600 border-red-400 hover:bg-red-50"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

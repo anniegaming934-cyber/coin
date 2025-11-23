@@ -1,88 +1,84 @@
-import express from "express";
-import { connectDB } from "../config/db.js";
+import { Router } from "express";
 import Schedule from "../models/Schedule.js";
 
-const router = express.Router();
+const router = Router();
 
-// ✅ Ensure DB for all routes here
-router.use(async (_req, res, next) => {
-  try {
-    await connectDB();
-    next();
-  } catch (err) {
-    console.error("❌ DB connect (schedules) failed:", err);
-    res.status(500).json({ message: "Database connection failed" });
-  }
-});
-
-// 🟢 GET /api/schedules
-// Optional filters: ?username=abc&day=Monday
+/**
+ * GET /api/schedules
+ * Optional query: ?username=john   (matches any schedule containing that username)
+ */
 router.get("/", async (req, res) => {
   try {
-    const { username, day } = req.query;
+    const { username } = req.query;
+
     const filter = {};
+    if (username) {
+      filter.usernames = username; // matches if array contains this username
+    }
 
-    if (username) filter.username = username;
-    if (day) filter.day = day;
-
-    const schedules = await Schedule.find(filter).sort({
-      username: 1,
-      day: 1,
-      startTime: 1,
-    });
-
-    res.json(schedules);
+    const items = await Schedule.find(filter).sort({ day: 1, startTime: 1 });
+    res.json(items);
   } catch (err) {
-    console.error("GET /schedules error:", err);
+    console.error("Error fetching schedules:", err);
     res.status(500).json({ message: "Failed to fetch schedules" });
   }
 });
 
-// 🟢 GET /api/schedules/:id  (single schedule)
-router.get("/:id", async (req, res) => {
-  try {
-    const s = await Schedule.findById(req.params.id);
-    if (!s) return res.status(404).json({ message: "Schedule not found" });
-    res.json(s);
-  } catch (err) {
-    console.error("GET /schedules/:id error:", err);
-    res.status(400).json({ message: "Invalid schedule id" });
-  }
-});
-
-// 🟡 POST /api/schedules  (create)
+/**
+ * POST /api/schedules
+ * body: { usernames: string[], day, startTime, endTime, title }
+ * startTime / endTime example: "09:00 AM"
+ */
 router.post("/", async (req, res) => {
   try {
-    const { username, day, startTime, endTime, title } = req.body;
+    const { usernames, day, startTime, endTime, title } = req.body;
 
-    if (!username || !day || !startTime || !endTime || !title) {
-      return res.status(400).json({ message: "Missing required fields" });
+    if (!Array.isArray(usernames) || usernames.length === 0) {
+      return res.status(400).json({ message: "usernames array is required" });
+    }
+    if (!day || !startTime || !endTime || !title) {
+      return res
+        .status(400)
+        .json({ message: "day, startTime, endTime, title are required" });
     }
 
     const created = await Schedule.create({
-      username,
+      usernames,
       day,
       startTime,
       endTime,
       title,
     });
 
-    res.json(created);
+    res.status(201).json(created);
   } catch (err) {
-    console.error("POST /schedules error:", err);
-    res.status(400).json({ message: "Failed to create schedule" });
+    console.error("Error creating schedule:", err);
+    res.status(500).json({ message: "Failed to create schedule" });
   }
 });
 
-// 🟠 PUT /api/schedules/:id  (update)
+/**
+ * PUT /api/schedules/:id
+ * body: { usernames: string[], day, startTime, endTime, title }
+ */
 router.put("/:id", async (req, res) => {
   try {
-    const { username, day, startTime, endTime, title } = req.body;
+    const { id } = req.params;
+    const { usernames, day, startTime, endTime, title } = req.body;
+
+    if (!Array.isArray(usernames) || usernames.length === 0) {
+      return res.status(400).json({ message: "usernames array is required" });
+    }
+    if (!day || !startTime || !endTime || !title) {
+      return res
+        .status(400)
+        .json({ message: "day, startTime, endTime, title are required" });
+    }
 
     const updated = await Schedule.findByIdAndUpdate(
-      req.params.id,
-      { username, day, startTime, endTime, title },
-      { new: true, runValidators: true }
+      id,
+      { usernames, day, startTime, endTime, title },
+      { new: true }
     );
 
     if (!updated) {
@@ -91,22 +87,27 @@ router.put("/:id", async (req, res) => {
 
     res.json(updated);
   } catch (err) {
-    console.error("PUT /schedules/:id error:", err);
-    res.status(400).json({ message: "Failed to update schedule" });
+    console.error("Error updating schedule:", err);
+    res.status(500).json({ message: "Failed to update schedule" });
   }
 });
 
-// 🔴 DELETE /api/schedules/:id
+/**
+ * DELETE /api/schedules/:id
+ */
 router.delete("/:id", async (req, res) => {
   try {
-    const deleted = await Schedule.findByIdAndDelete(req.params.id);
+    const { id } = req.params;
+
+    const deleted = await Schedule.findByIdAndDelete(id);
     if (!deleted) {
       return res.status(404).json({ message: "Schedule not found" });
     }
-    res.json({ message: "Deleted" });
+
+    res.json({ message: "Deleted successfully" });
   } catch (err) {
-    console.error("DELETE /schedules/:id error:", err);
-    res.status(400).json({ message: "Failed to delete schedule" });
+    console.error("Error deleting schedule:", err);
+    res.status(500).json({ message: "Failed to delete schedule" });
   }
 });
 
