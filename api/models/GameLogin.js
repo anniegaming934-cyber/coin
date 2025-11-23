@@ -1,6 +1,8 @@
-// src/models/GameLogin.ts
-import { Schema, model, Document } from "mongoose";
-const gameLoginSchema = new Schema<IGameLogin>(
+import mongoose from "mongoose";
+
+const { Schema, model } = mongoose;
+
+const gameLoginSchema = new Schema(
   {
     ownerType: {
       type: String,
@@ -32,4 +34,6 @@ const gameLoginSchema = new Schema<IGameLogin>(
   }
 );
 
-export const GameLogin = model<IGameLogin>("GameLogin", gameLoginSchema);
+const GameLogin = model("GameLogin", gameLoginSchema);
+
+export default GameLogin;
