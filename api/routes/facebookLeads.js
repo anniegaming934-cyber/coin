@@ -40,10 +40,10 @@ router.post("/", async (req, res) => {
   try {
     const { name, email, phone, contactPreference, facebookLink } = req.body;
 
-    if (!name || !email) {
+    if (!name) {
       return res
         .status(400)
-        .json({ message: "Both name and email are required" });
+        .json({ message: "Both name are required" });
     }
 
     const lead = await FacebookLead.create({

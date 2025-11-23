@@ -180,30 +180,35 @@ router.get("/", requireAuth, requireAdmin, async (req, res) => {
  * With mount app.use("/api/admin/users", router)
  * this is PATCH /api/admin/users/:id/approve
  */
+// api/routes/adminUsers.js (example)
 router.patch("/:id/approve", requireAuth, requireAdmin, async (req, res) => {
   try {
-    const { id } = req.params;
-
     const user = await User.findByIdAndUpdate(
-      id,
+      req.params.id,
       {
         isApproved: true,
         status: "active",
+        lastSignInAt: new Date(), // optional: track this in User too
       },
       { new: true }
-    ).select("username email role isAdmin isApproved status createdAt");
+    );
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
 
-    return res.json({
-      message: "User approved successfully",
-      user,
+    // 🔥 create an "auto login" session
+    await LoginSession.create({
+      username: user.username,
+      email: user.email,
+      signInAt: new Date(),
+      signOutAt: null,
     });
+
+    res.json(user);
   } catch (err) {
     console.error("Error approving user:", err);
-    return res.status(500).json({ message: "Failed to approve user" });
+    res.status(500).json({ message: "Failed to approve user" });
   }
 });
 
