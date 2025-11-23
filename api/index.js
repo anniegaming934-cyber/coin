@@ -15,6 +15,7 @@ import gameEntryRoutes from "./routes/gameEntries.js";
 import salariesRouter from "./routes/salary.js";
 import schedulesRouter from "./routes/schedules.js";
 
+import gameLoginRoutes from "./routes/gameLogin.js";
 if (process.env.NODE_ENV !== "production") {
   dotenv.config(); // local dev only
 }
@@ -62,8 +63,9 @@ app.use("/api/facebook-leads", facebookLeadRoutes);
 app.use("/api/game-entries", gameEntryRoutes);
 
 app.use("/api/salaries", salariesRouter);
-
+app.use("/api/game-logins", gameLoginRoutes);
 app.use("/api/schedules", schedulesRouter);
+
 // ✅ Start server
 const PORT = process.env.PORT || 5000;
 
