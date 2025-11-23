@@ -3,11 +3,11 @@ import { apiClient } from "../apiConfig";
 
 type ScheduleItem = {
   _id: string;
-  usernames: string[];
+  username: string;
   day: string;
+  shift: "morning" | "day" | "evening" | "night";
   startTime: string; // "09:00 AM"
   endTime: string; // "05:00 PM"
-  title: string;
 };
 
 type UserOption = {
@@ -26,21 +26,26 @@ const days = [
 ];
 
 const hours12 = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"];
-const minutes = ["00", "15", "30", "45"]; // adjust if you want more granularity
+const minutes = ["00", "15", "30", "45"];
 const ampmOptions = ["AM", "PM"] as const;
-
 type AmPm = (typeof ampmOptions)[number];
 
 const ScheduleForm: React.FC = () => {
   const [items, setItems] = useState<ScheduleItem[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // multi select usernames
-  const [selectedUsernames, setSelectedUsernames] = useState<string[]>([]);
+  // username (single)
+  const [username, setUsername] = useState("");
+
+  // days (multi-select)
+  const [selectedDays, setSelectedDays] = useState<string[]>([]);
+
+  // shift
+  const [shift, setShift] = useState<"morning" | "day" | "evening" | "night">(
+    "morning"
+  );
 
   // time pieces
-  const [day, setDay] = useState("Monday");
-
   const [startHour, setStartHour] = useState("9");
   const [startMinute, setStartMinute] = useState("00");
   const [startAmPm, setStartAmPm] = useState<AmPm>("AM");
@@ -48,8 +53,6 @@ const ScheduleForm: React.FC = () => {
   const [endHour, setEndHour] = useState("5");
   const [endMinute, setEndMinute] = useState("00");
   const [endAmPm, setEndAmPm] = useState<AmPm>("PM");
-
-  const [title, setTitle] = useState("");
 
   const [userOptions, setUserOptions] = useState<UserOption[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
@@ -66,7 +69,6 @@ const ScheduleForm: React.FC = () => {
   const parseTimeString = (
     time: string
   ): { hour: string; minute: string; ampm: AmPm } | null => {
-    // expecting "HH:MM AM"
     const match = time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
     if (!match) return null;
     const [, h, m, ap] = match;
@@ -132,46 +134,57 @@ const ScheduleForm: React.FC = () => {
   }, []);
 
   const resetForm = () => {
-    setSelectedUsernames([]);
-    setDay("Monday");
+    setUsername("");
+    setSelectedDays([]);
+    setShift("morning");
     setStartHour("9");
     setStartMinute("00");
     setStartAmPm("AM");
     setEndHour("5");
     setEndMinute("00");
     setEndAmPm("PM");
-    setTitle("");
     setEditingId(null);
+    setScheduleError("");
   };
 
-  const handleUserMultiSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleDayMultiSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const options = Array.from(e.target.selectedOptions).map((o) => o.value);
-    setSelectedUsernames(options);
+    setSelectedDays(options);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (selectedUsernames.length === 0) return;
-    if (!title.trim()) return;
+    setScheduleError("");
+
+    if (!username) {
+      setScheduleError("Please select a username");
+      return;
+    }
+
+    if (!selectedDays.length) {
+      setScheduleError("Please select at least one day");
+      return;
+    }
 
     const startTime = buildTimeString(startHour, startMinute, startAmPm);
     const endTime = buildTimeString(endHour, endMinute, endAmPm);
 
     try {
       setSaving(true);
-      setScheduleError("");
 
       if (editingId) {
-        // Update existing schedule
+        // For editing, use the first selected day
+        const day = selectedDays[0];
+
         const res = await apiClient.put<ScheduleItem>(
           `/api/schedules/${editingId}`,
           {
-            usernames: selectedUsernames,
+            username,
             day,
+            shift,
             startTime,
             endTime,
-            title: title.trim(),
           }
         );
         const updated = res.data;
@@ -179,20 +192,25 @@ const ScheduleForm: React.FC = () => {
           prev.map((item) => (item._id === updated._id ? updated : item))
         );
       } else {
-        // Create new schedule
-        const res = await apiClient.post<ScheduleItem>("/api/schedules", {
-          usernames: selectedUsernames,
-          day,
-          startTime,
-          endTime,
-          title: title.trim(),
-        });
-        const created = res.data;
-        setItems((prev) => [...prev, created]);
+        // Create one schedule per selected day
+        const createdItems: ScheduleItem[] = [];
+
+        for (const d of selectedDays) {
+          const res = await apiClient.post<ScheduleItem>("/api/schedules", {
+            username,
+            day: d,
+            shift,
+            startTime,
+            endTime,
+          });
+          createdItems.push(res.data);
+        }
+
+        setItems((prev) => [...prev, ...createdItems]);
       }
 
       resetForm();
-    } catch (err: any) {
+    } catch (err) {
       console.error("Failed to save schedule", err);
       setScheduleError("Failed to save schedule");
     } finally {
@@ -202,8 +220,9 @@ const ScheduleForm: React.FC = () => {
 
   const handleEdit = (item: ScheduleItem) => {
     setEditingId(item._id);
-    setSelectedUsernames(item.usernames);
-    setDay(item.day);
+    setUsername(item.username);
+    setSelectedDays([item.day]);
+    setShift(item.shift);
 
     const s = parseTimeString(item.startTime);
     const e = parseTimeString(item.endTime);
@@ -217,7 +236,6 @@ const ScheduleForm: React.FC = () => {
       setEndMinute(e.minute);
       setEndAmPm(e.ampm);
     }
-    setTitle(item.title);
   };
 
   const handleDelete = async (id: string) => {
@@ -255,41 +273,40 @@ const ScheduleForm: React.FC = () => {
         onSubmit={handleSubmit}
         className="space-y-4 rounded-xl border p-4 shadow-sm bg-white"
       >
-        {/* Username + Day + Times + Task */}
         <div className="grid gap-4 md:grid-cols-5">
-          {/* Usernames (multi-select) */}
+          {/* Username (single select) */}
           <div className="md:col-span-1">
-            <label className="block text-sm font-medium mb-1">
-              Usernames (multi-select)
-            </label>
+            <label className="block text-sm font-medium mb-1">Username</label>
             <select
-              multiple
-              className="w-full border rounded-md px-2 py-1 text-sm h-24"
-              value={selectedUsernames}
-              onChange={handleUserMultiSelect}
+              className="w-full border rounded-md px-2 py-1 text-sm"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               disabled={loadingUsers}
             >
+              <option value="">
+                {loadingUsers ? "Loading users..." : "Select user"}
+              </option>
               {userOptions.map((u) => (
                 <option key={u.username} value={u.username}>
                   {u.username}
                 </option>
               ))}
             </select>
-            {loadingUsers && (
-              <p className="mt-1 text-xs text-gray-500">Loading users...</p>
-            )}
             {userError && (
               <p className="mt-1 text-xs text-red-500">{userError}</p>
             )}
           </div>
 
-          {/* Day */}
+          {/* Days (multi-select) */}
           <div className="md:col-span-1">
-            <label className="block text-sm font-medium mb-1">Day</label>
+            <label className="block text-sm font-medium mb-1">
+              Days (multi-select)
+            </label>
             <select
-              className="w-full border rounded-md px-2 py-1 text-sm"
-              value={day}
-              onChange={(e) => setDay(e.target.value)}
+              multiple
+              className="w-full border rounded-md px-2 py-1 text-sm h-24"
+              value={selectedDays}
+              onChange={handleDayMultiSelect}
             >
               {days.map((d) => (
                 <option key={d} value={d}>
@@ -381,16 +398,23 @@ const ScheduleForm: React.FC = () => {
             </div>
           </div>
 
-          {/* Task */}
+          {/* Shift */}
           <div className="md:col-span-1">
-            <label className="block text-sm font-medium mb-1">Task</label>
-            <input
-              type="text"
+            <label className="block text-sm font-medium mb-1">Shift</label>
+            <select
               className="w-full border rounded-md px-2 py-1 text-sm"
-              placeholder="Work"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-            />
+              value={shift}
+              onChange={(e) =>
+                setShift(
+                  e.target.value as "morning" | "day" | "evening" | "night"
+                )
+              }
+            >
+              <option value="morning">Morning</option>
+              <option value="day">Day</option>
+              <option value="evening">Evening</option>
+              <option value="night">Night</option>
+            </select>
           </div>
         </div>
 
@@ -423,9 +447,9 @@ const ScheduleForm: React.FC = () => {
         <table className="w-full text-sm">
           <thead className="bg-gray-100">
             <tr>
-              <th className="text-left px-3 py-2">Usernames</th>
+              <th className="text-left px-3 py-2">Username</th>
               <th className="text-left px-3 py-2">Time</th>
-              <th className="text-left px-3 py-2">Task</th>
+              <th className="text-left px-3 py-2">Shift</th>
               <th className="text-right px-3 py-2">Actions</th>
             </tr>
           </thead>
@@ -466,11 +490,11 @@ const ScheduleForm: React.FC = () => {
                   {/* Rows for that day */}
                   {dayItems.map((item) => (
                     <tr key={item._id} className="border-t">
-                      <td className="px-3 py-2">{item.usernames.join(", ")}</td>
+                      <td className="px-3 py-2">{item.username}</td>
                       <td className="px-3 py-2">
                         {item.startTime} - {item.endTime}
                       </td>
-                      <td className="px-3 py-2">{item.title}</td>
+                      <td className="px-3 py-2 capitalize">{item.shift}</td>
                       <td className="px-3 py-2 text-right space-x-2">
                         <button
                           type="button"

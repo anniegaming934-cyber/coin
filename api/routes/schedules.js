@@ -5,7 +5,7 @@ const router = Router();
 
 /**
  * GET /api/schedules
- * Optional query: ?username=john   (matches any schedule containing that username)
+ * Optional query: ?username=john
  */
 router.get("/", async (req, res) => {
   try {
@@ -13,7 +13,7 @@ router.get("/", async (req, res) => {
 
     const filter = {};
     if (username) {
-      filter.usernames = username; // matches if array contains this username
+      filter.username = username;
     }
 
     const items = await Schedule.find(filter).sort({ day: 1, startTime: 1 });
@@ -26,28 +26,24 @@ router.get("/", async (req, res) => {
 
 /**
  * POST /api/schedules
- * body: { usernames: string[], day, startTime, endTime, title }
- * startTime / endTime example: "09:00 AM"
+ * body: { username, day, shift, startTime, endTime }
  */
 router.post("/", async (req, res) => {
   try {
-    const { usernames, day, startTime, endTime, title } = req.body;
+    const { username, day, shift, startTime, endTime } = req.body;
 
-    if (!Array.isArray(usernames) || usernames.length === 0) {
-      return res.status(400).json({ message: "usernames array is required" });
-    }
-    if (!day || !startTime || !endTime || !title) {
-      return res
-        .status(400)
-        .json({ message: "day, startTime, endTime, title are required" });
+    if (!username || !day || !shift || !startTime || !endTime) {
+      return res.status(400).json({
+        message: "username, day, shift, startTime, endTime are required",
+      });
     }
 
     const created = await Schedule.create({
-      usernames,
+      username,
       day,
+      shift,
       startTime,
       endTime,
-      title,
     });
 
     res.status(201).json(created);
@@ -59,25 +55,22 @@ router.post("/", async (req, res) => {
 
 /**
  * PUT /api/schedules/:id
- * body: { usernames: string[], day, startTime, endTime, title }
+ * body: { username, day, shift, startTime, endTime }
  */
 router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { usernames, day, startTime, endTime, title } = req.body;
+    const { username, day, shift, startTime, endTime } = req.body;
 
-    if (!Array.isArray(usernames) || usernames.length === 0) {
-      return res.status(400).json({ message: "usernames array is required" });
-    }
-    if (!day || !startTime || !endTime || !title) {
-      return res
-        .status(400)
-        .json({ message: "day, startTime, endTime, title are required" });
+    if (!username || !day || !shift || !startTime || !endTime) {
+      return res.status(400).json({
+        message: "username, day, shift, startTime, endTime are required",
+      });
     }
 
     const updated = await Schedule.findByIdAndUpdate(
       id,
-      { usernames, day, startTime, endTime, title },
+      { username, day, shift, startTime, endTime },
       { new: true }
     );
 

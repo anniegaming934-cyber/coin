@@ -4,28 +4,28 @@ const { Schema, model } = mongoose;
 
 const scheduleSchema = new Schema(
   {
-    // multiple usernames per schedule entry
-    usernames: {
-      type: [String],
+    username: {
+      type: String,
       required: true,
+      trim: true,
     },
     day: {
       type: String,
       required: true,
       trim: true,
     },
-    // store as "09:30 AM"
+    shift: {
+      type: String,
+      enum: ["morning", "day", "evening", "night"],
+      required: true,
+    },
+    // stored as "09:00 AM"
     startTime: {
       type: String,
       required: true,
       trim: true,
     },
     endTime: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-    title: {
       type: String,
       required: true,
       trim: true,
