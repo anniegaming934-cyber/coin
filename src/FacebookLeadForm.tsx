@@ -1,6 +1,12 @@
 // src/FacebookLeadForm.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "./apiConfig";
+import {
+  ColumnDef,
+  flexRender,
+  getCoreRowModel,
+  useReactTable,
+} from "@tanstack/react-table";
 
 interface Lead {
   _id: string;
@@ -131,9 +137,7 @@ const FacebookLeadForm: React.FC = () => {
 
     try {
       await apiClient.delete(`/api/facebook-leads/${id}`);
-      // Update UI without refetch if you want:
       setLeads((prev) => prev.filter((l) => l._id !== id));
-      // or you can call await loadLeads();
       setSuccess("Lead deleted ✅");
       if (editingId === id) {
         resetForm();
@@ -176,7 +180,6 @@ const FacebookLeadForm: React.FC = () => {
           row
             .map((field) => {
               const s = String(field ?? "");
-              // escape quotes
               if (s.includes(",") || s.includes('"') || s.includes("\n")) {
                 return `"${s.replace(/"/g, '""')}"`;
               }
@@ -196,6 +199,96 @@ const FacebookLeadForm: React.FC = () => {
     a.click();
     URL.revokeObjectURL(url);
   };
+
+  // ==========================
+  // React Table setup
+  // ==========================
+  const columns = useMemo<ColumnDef<Lead>[]>(
+    () => [
+      {
+        accessorKey: "name",
+        header: "Name",
+        cell: (info) => info.getValue() as string,
+      },
+      {
+        accessorKey: "email",
+        header: "Email",
+        cell: (info) => info.getValue() as string,
+      },
+      {
+        accessorKey: "phone",
+        header: "Phone",
+        cell: (info) => (info.getValue() as string) || "-",
+      },
+      {
+        accessorKey: "contactPreference",
+        header: "Contact",
+        cell: (info) => {
+          const v = info.getValue() as Lead["contactPreference"];
+          return v ? v.charAt(0).toUpperCase() + v.slice(1) : "-";
+        },
+      },
+      {
+        accessorKey: "facebookLink",
+        header: "Facebook",
+        cell: (info) => {
+          const link = info.getValue() as string | undefined;
+          return link ? (
+            <a
+              href={link}
+              className="text-blue-600 hover:underline break-all"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Link
+            </a>
+          ) : (
+            "-"
+          );
+        },
+      },
+      {
+        accessorKey: "createdAt",
+        header: "Created",
+        cell: (info) => {
+          const createdAt = info.getValue() as string | undefined;
+          return createdAt ? new Date(createdAt).toLocaleString() : "-";
+        },
+      },
+      {
+        id: "actions",
+        header: "Action",
+        cell: ({ row }) => {
+          const lead = row.original;
+          return (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleEdit(lead)}
+                className="text-xs md:text-sm px-2 py-1 rounded-md border border-blue-500 text-blue-600 hover:bg-blue-50"
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete(lead._id)}
+                className="text-xs md:text-sm px-2 py-1 rounded-md border border-red-500 text-red-600 hover:bg-red-50"
+              >
+                Delete
+              </button>
+            </div>
+          );
+        },
+      },
+    ],
+    [handleDelete, handleEdit]
+  );
+
+  const table = useReactTable({
+    data: leads,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+  });
 
   return (
     <div className="w-full space-y-6">
@@ -336,62 +429,32 @@ const FacebookLeadForm: React.FC = () => {
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="border-b bg-gray-50">
-                  <th className="text-left px-3 py-2">Name</th>
-                  <th className="text-left px-3 py-2">Email</th>
-                  <th className="text-left px-3 py-2">Phone</th>
-                  <th className="text-left px-3 py-2">Contact</th>
-                  <th className="text-left px-3 py-2">Facebook</th>
-                  <th className="text-left px-3 py-2">Created</th>
-                  <th className="text-left px-3 py-2">Action</th>
-                </tr>
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <tr key={headerGroup.id} className="border-b bg-gray-50">
+                    {headerGroup.headers.map((header) => (
+                      <th key={header.id} className="text-left px-3 py-2">
+                        {header.isPlaceholder
+                          ? null
+                          : flexRender(
+                              header.column.columnDef.header,
+                              header.getContext()
+                            )}
+                      </th>
+                    ))}
+                  </tr>
+                ))}
               </thead>
               <tbody>
-                {leads.map((lead) => (
-                  <tr key={lead._id} className="border-b last:border-0">
-                    <td className="px-3 py-2">{lead.name}</td>
-                    <td className="px-3 py-2">{lead.email}</td>
-                    <td className="px-3 py-2">{lead.phone || "-"}</td>
-                    <td className="px-3 py-2 capitalize">
-                      {lead.contactPreference || "-"}
-                    </td>
-                    <td className="px-3 py-2">
-                      {lead.facebookLink ? (
-                        <a
-                          href={lead.facebookLink}
-                          className="text-blue-600 hover:underline break-all"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Link
-                        </a>
-                      ) : (
-                        "-"
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-xs text-gray-500">
-                      {lead.createdAt
-                        ? new Date(lead.createdAt).toLocaleString()
-                        : "-"}
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleEdit(lead)}
-                          className="text-xs md:text-sm px-2 py-1 rounded-md border border-blue-500 text-blue-600 hover:bg-blue-50"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(lead._id)}
-                          className="text-xs md:text-sm px-2 py-1 rounded-md border border-red-500 text-red-600 hover:bg-red-50"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
+                {table.getRowModel().rows.map((row) => (
+                  <tr key={row.id} className="border-b last:border-0">
+                    {row.getVisibleCells().map((cell) => (
+                      <td key={cell.id} className="px-3 py-2">
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext()
+                        )}
+                      </td>
+                    ))}
                   </tr>
                 ))}
               </tbody>

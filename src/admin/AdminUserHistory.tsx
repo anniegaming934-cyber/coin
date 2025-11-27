@@ -1,8 +1,20 @@
-// src/components/AdminUserHistory.tsx  (or UserHistory.tsx depending on your path)
+// src/components/AdminUserHistory.tsx  (or UserHistory.tsx)
 import React, { useEffect, useMemo, useState, type FC } from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { apiClient } from "../apiConfig";
 import { DataTable } from "../DataTable";
+
+import {
+  Chart as ChartJS,
+  ArcElement,
+  Tooltip,
+  Legend,
+  Title,
+  type ChartOptions,
+} from "chart.js";
+import { Pie } from "react-chartjs-2";
+
+ChartJS.register(ArcElement, Tooltip, Legend, Title);
 
 export interface UserHistoryProps {
   // This is actually the username passed from AdminDashboard
@@ -228,7 +240,7 @@ const UserHistory: FC<UserHistoryProps> = ({ username }) => {
 
   // 🔹 Summary totals computed from filtered entries (respects date range)
   //    Total Points Used = deposit + freeplay
-  const { totalDeposit, totalRedeem, totalFreeplay, totalPointsUsed } =
+  const { totalDeposit, totalRedeem, totalFreeplay, totalPointsUsed, profit } =
     useMemo(() => {
       let deposit = 0;
       let redeem = 0;
@@ -241,11 +253,15 @@ const UserHistory: FC<UserHistoryProps> = ({ username }) => {
         if (e.type === "freeplay") freeplay += amt;
       });
 
+      const totalPointsUsed = deposit + freeplay; // deposit + freeplay only
+      const profit = redeem - deposit; // profit = totalRedeem - totalDeposit
+
       return {
         totalDeposit: deposit,
         totalRedeem: redeem,
         totalFreeplay: freeplay,
-        totalPointsUsed: deposit + freeplay, // ✅ deposit + freeplay only
+        totalPointsUsed,
+        profit,
       };
     }, [filteredEntries]);
 
@@ -271,6 +287,66 @@ const UserHistory: FC<UserHistoryProps> = ({ username }) => {
 
     return { totalSalary, totalPaid, totalRemaining };
   }, [salaries]);
+
+  // 🔹 Pie chart (Deposit / Redeem / Freeplay / Points Used / Profit)
+  const profitSlice = profit > 0 ? profit : 0; // pie cannot have negative slice
+  const summaryPieData = {
+    labels: ["Deposit", "Redeem", "Freeplay", "Points Used", "Profit"],
+    datasets: [
+      {
+        label: "Coins",
+        data: [
+          totalDeposit,
+          totalRedeem,
+          totalFreeplay,
+          totalPointsUsed,
+          profitSlice,
+        ],
+        backgroundColor: [
+          "#22c55e", // Deposit
+          "#ef4444", // Redeem
+          "#3b82f6", // Freeplay
+          "#a855f7", // Points Used
+          "#f97316", // Profit
+        ],
+        borderColor: ["#16a34a", "#b91c1c", "#1d4ed8", "#7e22ce", "#c2410c"],
+        borderWidth: 1,
+      },
+    ],
+  };
+
+  const summaryPieTotal =
+    totalDeposit +
+      totalRedeem +
+      totalFreeplay +
+      totalPointsUsed +
+      profitSlice || 0;
+
+  const summaryPieOptions: ChartOptions<"pie"> = {
+    responsive: true,
+    plugins: {
+      legend: {
+        position: "bottom",
+      },
+      title: {
+        display: true,
+        text: "Coins Overview",
+      },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => {
+            const label = ctx.label || "";
+            const raw = ctx.raw as number;
+            let value = raw;
+            if (label === "Profit") value = profit; // show signed profit
+            const total = summaryPieTotal || 1;
+            const pct = ((Math.abs(raw) / total) * 100).toFixed(1);
+            return `${label}: ${fmtAmount(value)} (${pct}%)`;
+          },
+        },
+      },
+    },
+  };
 
   const sessionColumns = useMemo<ColumnDef<LoginSessionRow, any>[]>(
     () => [
@@ -433,61 +509,99 @@ const UserHistory: FC<UserHistoryProps> = ({ username }) => {
       </div>
 
       {/* Date filter bar (applies to sessions + game entries + summary) */}
-      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] max-w-md">
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">
-            From Date
-          </label>
-          <input
-            type="date"
-            value={fromDate}
-            onChange={(e) => setFromDate(e.target.value)}
-            className="w-full border rounded px-3 py-1.5 text-sm"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">
-            To Date
-          </label>
-          <input
-            type="date"
-            value={toDate}
-            onChange={(e) => setToDate(e.target.value)}
-            className="w-full border rounded px-3 py-1.5 text-sm"
-          />
-        </div>
-      </div>
+  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+  {/* LEFT SIDE — DATE FILTERS */}
+  <div className="lg:col-span-1 grid grid-cols-1 md:grid-cols-2 gap-3">
+    <div>
+      <label className="block text-xs font-medium text-gray-700 mb-1">
+        From Date
+      </label>
+      <input
+        type="date"
+        value={fromDate}
+        onChange={(e) => setFromDate(e.target.value)}
+        className="w-full border rounded px-3 py-1.5 text-sm"
+      />
+    </div>
 
-      {/* Summary cards (respect username + date filters) */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 text-sm">
-        <div className="p-3 border rounded-md">
-          <div className="text-xs text-gray-500">Total Cash In (Deposit)</div>
-          <div className="text-lg font-semibold">{fmtAmount(totalDeposit)}</div>
-        </div>
-        <div className="p-3 border rounded-md">
-          <div className="text-xs text-gray-500">Total Cash Out (Redeem)</div>
-          <div className="text-lg font-semibold">{fmtAmount(totalRedeem)}</div>
-        </div>
-        <div className="p-3 border rounded-md">
-          <div className="text-xs text-gray-500">Total Freeplay</div>
-          <div className="text-lg font-semibold">
-            {fmtAmount(totalFreeplay)}
+    <div>
+      <label className="block text-xs font-medium text-gray-700 mb-1">
+        To Date
+      </label>
+      <input
+        type="date"
+        value={toDate}
+        onChange={(e) => setToDate(e.target.value)}
+        className="w-full border rounded px-3 py-1.5 text-sm"
+      />
+    </div>
+  </div>
+
+  {/* RIGHT SIDE — SMALL PIE CHART */}
+  <div className="lg:col-span-2 flex items-center justify-center">
+    <div className="bg-white border rounded-md p-3 flex items-center justify-center"
+         style={{ width: "380px", height: "380px" }}>
+      {summaryPieTotal <= 0 ? (
+        <p className="text-xs text-gray-500 text-center">
+          No activity
+        </p>
+      ) : (
+        <Pie
+          data={summaryPieData}
+          options={{
+            ...summaryPieOptions,
+            maintainAspectRatio: false,
+          }}
+        />
+      )}
+    </div>
+  </div>
+</div>
+
+
+      {/* Summary + right-side pie chart */}
+      <div className="flex flex-col lg:flex-row gap-4 items-stretch">
+        {/* Summary cards (left) */}
+        <div className="flex-1 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 text-sm">
+          <div className="p-3 border rounded-md bg-white">
+            <div className="text-xs text-gray-500">Total Cash In (Deposit)</div>
+            <div className="text-lg font-semibold">
+              {fmtAmount(totalDeposit)}
+            </div>
+          </div>
+          <div className="p-3 border rounded-md bg-white">
+            <div className="text-xs text-gray-500">Total Cash Out (Redeem)</div>
+            <div className="text-lg font-semibold">
+              {fmtAmount(totalRedeem)}
+            </div>
+          </div>
+          <div className="p-3 border rounded-md bg-white">
+            <div className="text-xs text-gray-500">Total Freeplay</div>
+            <div className="text-lg font-semibold">
+              {fmtAmount(totalFreeplay)}
+            </div>
+          </div>
+          <div className="p-3 border rounded-md bg-white">
+            <div className="text-xs text-gray-500">Total Points Used</div>
+            <div className="text-lg font-semibold">
+              {fmtAmount(Math.abs(totalPointsUsed))}
+            </div>
+          </div>
+          <div className="p-3 border rounded-md bg-white">
+            <div className="text-xs text-gray-500">Profit</div>
+            <div className="text-lg font-semibold">{fmtAmount(profit)}</div>
+          </div>
+          <div className="p-3 border rounded-md bg-white">
+            <div className="text-xs text-gray-500">Number of Games</div>
+            <div className="text-lg font-semibold">{gameStats.length}</div>
+          </div>
+          <div className="p-3 border rounded-md bg-white">
+            <div className="text-xs text-gray-500">Sign-in Sessions</div>
+            <div className="text-lg font-semibold">{totalSessions}</div>
           </div>
         </div>
-        <div className="p-3 border rounded-md">
-          <div className="text-xs text-gray-500">Total Points Used</div>
-          <div className="text-lg font-semibold">
-            {fmtAmount(Math.abs(totalPointsUsed))}
-          </div>
-        </div>
-        <div className="p-3 border rounded-md">
-          <div className="text-xs text-gray-500">Number of Games</div>
-          <div className="text-lg font-semibold">{gameStats.length}</div>
-        </div>
-        <div className="p-3 border rounded-md">
-          <div className="text-xs text-gray-500">Sign-in Sessions</div>
-          <div className="text-lg font-semibold">{totalSessions}</div>
-        </div>
+
+        {/* Pie chart (right, above/next to Total Points Used visually) */}
       </div>
 
       {/* Sessions table */}
