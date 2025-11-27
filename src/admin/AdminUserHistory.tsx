@@ -12,7 +12,7 @@ import {
   Title,
   type ChartOptions,
 } from "chart.js";
-import { Pie } from "react-chartjs-2";
+import { Doughnut } from "react-chartjs-2";
 
 ChartJS.register(ArcElement, Tooltip, Legend, Title);
 
@@ -288,8 +288,8 @@ const UserHistory: FC<UserHistoryProps> = ({ username }) => {
     return { totalSalary, totalPaid, totalRemaining };
   }, [salaries]);
 
-  // 🔹 Pie chart (Deposit / Redeem / Freeplay / Points Used / Profit)
-  const profitSlice = profit > 0 ? profit : 0; // pie cannot have negative slice
+  // 🔹 Doughnut chart (Deposit / Redeem / Freeplay / Points Used / Profit)
+  const profitSlice = profit > 0 ? profit : 0; // chart cannot have negative slice
   const summaryPieData = {
     labels: ["Deposit", "Redeem", "Freeplay", "Points Used", "Profit"],
     datasets: [
@@ -322,7 +322,7 @@ const UserHistory: FC<UserHistoryProps> = ({ username }) => {
       totalPointsUsed +
       profitSlice || 0;
 
-  const summaryPieOptions: ChartOptions<"pie"> = {
+  const summaryPieOptions: ChartOptions<"doughnut"> = {
     responsive: true,
     plugins: {
       legend: {
@@ -508,60 +508,58 @@ const UserHistory: FC<UserHistoryProps> = ({ username }) => {
         </p>
       </div>
 
-      {/* Date filter bar (applies to sessions + game entries + summary) */}
-  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
-  {/* LEFT SIDE — DATE FILTERS */}
-  <div className="lg:col-span-1 grid grid-cols-1 md:grid-cols-2 gap-3">
-    <div>
-      <label className="block text-xs font-medium text-gray-700 mb-1">
-        From Date
-      </label>
-      <input
-        type="date"
-        value={fromDate}
-        onChange={(e) => setFromDate(e.target.value)}
-        className="w-full border rounded px-3 py-1.5 text-sm"
-      />
-    </div>
+      {/* Date filter bar + doughnut chart */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+        {/* LEFT SIDE — DATE FILTERS */}
+        <div className="lg:col-span-1 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              From Date
+            </label>
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="w-full border rounded px-3 py-1.5 text-sm"
+            />
+          </div>
 
-    <div>
-      <label className="block text-xs font-medium text-gray-700 mb-1">
-        To Date
-      </label>
-      <input
-        type="date"
-        value={toDate}
-        onChange={(e) => setToDate(e.target.value)}
-        className="w-full border rounded px-3 py-1.5 text-sm"
-      />
-    </div>
-  </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              To Date
+            </label>
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="w-full border rounded px-3 py-1.5 text-sm"
+            />
+          </div>
+        </div>
 
-  {/* RIGHT SIDE — SMALL PIE CHART */}
-  <div className="lg:col-span-2 flex items-center justify-center">
-    <div className="bg-white border rounded-md p-3 flex items-center justify-center"
-         style={{ width: "380px", height: "380px" }}>
-      {summaryPieTotal <= 0 ? (
-        <p className="text-xs text-gray-500 text-center">
-          No activity
-        </p>
-      ) : (
-        <Pie
-          data={summaryPieData}
-          options={{
-            ...summaryPieOptions,
-            maintainAspectRatio: false,
-          }}
-        />
-      )}
-    </div>
-  </div>
-</div>
+        {/* RIGHT SIDE — SMALL DOUGHNUT CHART */}
+        <div className="lg:col-span-2 flex items-center justify-center">
+          <div
+            className="bg-white border rounded-md p-3 flex items-center justify-center"
+            style={{ width: "380px", height: "380px" }}
+          >
+            {summaryPieTotal <= 0 ? (
+              <p className="text-xs text-gray-500 text-center">No activity</p>
+            ) : (
+              <Doughnut
+                data={summaryPieData}
+                options={{
+                  ...summaryPieOptions,
+                  maintainAspectRatio: false,
+                }}
+              />
+            )}
+          </div>
+        </div>
+      </div>
 
-
-      {/* Summary + right-side pie chart */}
+      {/* Summary cards */}
       <div className="flex flex-col lg:flex-row gap-4 items-stretch">
-        {/* Summary cards (left) */}
         <div className="flex-1 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 text-sm">
           <div className="p-3 border rounded-md bg-white">
             <div className="text-xs text-gray-500">Total Cash In (Deposit)</div>
@@ -600,8 +598,6 @@ const UserHistory: FC<UserHistoryProps> = ({ username }) => {
             <div className="text-lg font-semibold">{totalSessions}</div>
           </div>
         </div>
-
-        {/* Pie chart (right, above/next to Total Points Used visually) */}
       </div>
 
       {/* Sessions table */}
