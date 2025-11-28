@@ -767,23 +767,72 @@ router.get("/summary", async (req, res) => {
       totalRedeem - (totalFreeplay + totalPlayedGame + totalDeposit);
 
     // ─────────────────────────────────────────────
-    // 3) Pending (only entries flagged as pending)
+    // 3) Pending (UNIFIED, same logic as /pending)
+    //    - For each (username + playerTag):
+    //       * if latest deposit has reduction > 0 → use that as pending
+    //       * else if latest redeem isPending → use its remainingPay (or cashout - paid)
     // ─────────────────────────────────────────────
-    const [pendingAgg] = await GameEntry.aggregate([
-      {
-        $match: {
-          isPending: true,
-          ...match,
-        },
-      },
-      {
-        $group: {
-          _id: null,
-          totalPendingRemainingPay: { $sum: { $ifNull: ["$remainingPay", 0] } },
-          totalPendingCount: { $sum: 1 },
-        },
-      },
-    ]);
+    let totalPendingRemainingPay = 0;
+    let totalPendingCount = 0;
+
+    const pendingMatch = {
+      ...match,
+      $or: [{ type: "redeem" }, { type: "deposit" }],
+    };
+
+    const pendingDocs = await GameEntry.find(pendingMatch)
+      .sort({ createdAt: 1 })
+      .lean();
+
+    const tagMap = new Map();
+
+    for (const e of pendingDocs) {
+      const key = `${e.username}::${e.playerTag || ""}`;
+      let group = tagMap.get(key);
+      if (!group) {
+        group = { lastRedeem: null, lastDeposit: null };
+        tagMap.set(key, group);
+      }
+
+      if (e.type === "redeem") {
+        group.lastRedeem = e;
+      } else if (e.type === "deposit") {
+        group.lastDeposit = e;
+      }
+    }
+
+    for (const [, group] of tagMap.entries()) {
+      const { lastRedeem, lastDeposit } = group;
+
+      let pendingReduction = 0;
+      let pendingRedeem = 0;
+      let totalPending = 0;
+
+      // 1️⃣ If there is a deposit, it is the source of truth
+      if (lastDeposit) {
+        pendingReduction = toNumber(lastDeposit.reduction, 0);
+        totalPending = pendingReduction;
+      } else if (lastRedeem && lastRedeem.isPending) {
+        // 2️⃣ If no deposit, fall back to redeem pending
+        const totalPaid = toNumber(lastRedeem.totalPaid ?? 0, 0);
+        const totalCashout = toNumber(
+          lastRedeem.totalCashout ?? lastRedeem.amountFinal ?? 0,
+          0
+        );
+
+        pendingRedeem = toNumber(
+          lastRedeem.remainingPay ?? totalCashout - totalPaid,
+          0
+        );
+
+        totalPending = pendingRedeem;
+      }
+
+      if (totalPending > 0) {
+        totalPendingRemainingPay += totalPending;
+        totalPendingCount += 1;
+      }
+    }
 
     // ─────────────────────────────────────────────
     // 4) Reduction + extra money
@@ -841,8 +890,8 @@ router.get("/summary", async (req, res) => {
       totalDeposit,
       totalRedeem,
       totalCoin,
-      totalPendingRemainingPay: pendingAgg?.totalPendingRemainingPay || 0,
-      totalPendingCount: pendingAgg?.totalPendingCount || 0,
+      totalPendingRemainingPay,
+      totalPendingCount,
       totalReduction: extraAgg?.totalReduction || 0,
       totalExtraMoney: extraAgg?.totalExtraMoney || 0,
       revenueCashApp,
