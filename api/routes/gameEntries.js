@@ -635,40 +635,100 @@ router.patch("/:id/clear-pending", async (req, res) => {
  *   - /api/game-entries/summary?year=2024&month=8
  *   - /api/game-entries/summary?year=2024&month=8&day=15
  */
+/**
+ * 🔹 GET /api/game-entries/summary
+ *
+ * Supports:
+ *   - /api/game-entries/summary?period=day|week|month
+ *   - /api/game-entries/summary?period=day|week|month&username=...
+ *   - /api/game-entries/summary?year=2024&month=8
+ *   - /api/game-entries/summary?year=2024&month=8&day=15
+ *   - (optionally combined with username=...)
+ */
 router.get("/summary", async (req, res) => {
   try {
-    const year = parseInt(req.query.year, 10);
-    const month = parseInt(req.query.month, 10); // 1–12
-    const day = req.query.day ? parseInt(req.query.day, 10) : NaN; // 1–31 (optional)
+    const { username, period } = req.query;
 
-    // 1) Build filter using date string "YYYY-MM-DD"
-    let dateFilter = {};
-    if (
-      !Number.isNaN(year) &&
-      !Number.isNaN(month) &&
-      month >= 1 &&
-      month <= 12
-    ) {
-      const mm = String(month).padStart(2, "0");
+    // Base match object used for all aggregations
+    const match = {};
 
-      // If day is valid -> filter specific day
-      if (!Number.isNaN(day) && day >= 1 && day <= 31) {
-        const dd = String(day).padStart(2, "0");
-        const targetDate = `${year}-${mm}-${dd}`; // e.g. "2024-08-15"
-        dateFilter = { date: targetDate };
+    // Optional username filter
+    if (username && String(username).trim()) {
+      match.username = String(username).trim();
+    }
+
+    // ─────────────────────────────────────────────
+    // 1) Date filtering
+    //    a) If period=day|week|month → use createdAt range
+    //    b) Else, fallback to legacy year/month/day on "date" string
+    // ─────────────────────────────────────────────
+    const now = new Date();
+
+    if (period === "day" || period === "week" || period === "month") {
+      let start;
+      let end;
+
+      if (period === "day") {
+        // Today 00:00 → tomorrow 00:00
+        start = new Date(now);
+        start.setHours(0, 0, 0, 0);
+        end = new Date(start);
+        end.setDate(start.getDate() + 1);
+      } else if (period === "week") {
+        // This week (Mon–Sun) based on server local time
+        start = new Date(now);
+        start.setHours(0, 0, 0, 0);
+        const dayOfWeek = start.getDay(); // 0=Sun,1=Mon,...6=Sat
+        const diffToMonday = (dayOfWeek + 6) % 7; // convert so Mon=0
+        start.setDate(start.getDate() - diffToMonday);
+
+        end = new Date(start);
+        end.setDate(start.getDate() + 7);
       } else {
-        // Otherwise filter whole month
-        const prefix = `${year}-${mm}`; // e.g. "2024-08"
-        dateFilter = { date: { $regex: `^${prefix}` } };
+        // period === "month" → first day of this month to first of next
+        start = new Date(now.getFullYear(), now.getMonth(), 1);
+        end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
       }
+
+      match.createdAt = { $gte: start, $lt: end };
+    } else {
+      // Legacy: year/month/day query on the "date" string field (YYYY-MM-DD)
+      const year = parseInt(req.query.year, 10);
+      const month = parseInt(req.query.month, 10); // 1–12
+      const day = req.query.day ? parseInt(req.query.day, 10) : NaN; // 1–31 (optional)
+
+      let dateFilter = {};
+      if (
+        !Number.isNaN(year) &&
+        !Number.isNaN(month) &&
+        month >= 1 &&
+        month <= 12
+      ) {
+        const mm = String(month).padStart(2, "0");
+
+        if (!Number.isNaN(day) && day >= 1 && day <= 31) {
+          // Specific day: YYYY-MM-DD
+          const dd = String(day).padStart(2, "0");
+          const targetDate = `${year}-${mm}-${dd}`;
+          dateFilter = { date: targetDate };
+        } else {
+          // Entire month: date starts with "YYYY-MM"
+          const prefix = `${year}-${mm}`;
+          dateFilter = { date: { $regex: `^${prefix}` } };
+        }
+      }
+
+      Object.assign(match, dateFilter);
     }
 
     console.log("SUMMARY query:", req.query);
-    console.log("SUMMARY dateFilter:", JSON.stringify(dateFilter));
+    console.log("SUMMARY match:", JSON.stringify(match));
 
+    // ─────────────────────────────────────────────
     // 2) Totals by type (coins)
+    // ─────────────────────────────────────────────
     const byType = await GameEntry.aggregate([
-      { $match: dateFilter },
+      { $match: match },
       {
         $group: {
           _id: "$type",
@@ -706,9 +766,16 @@ router.get("/summary", async (req, res) => {
     const totalCoin =
       totalRedeem - (totalFreeplay + totalPlayedGame + totalDeposit);
 
+    // ─────────────────────────────────────────────
     // 3) Pending (only entries flagged as pending)
+    // ─────────────────────────────────────────────
     const [pendingAgg] = await GameEntry.aggregate([
-      { $match: { isPending: true, ...dateFilter } },
+      {
+        $match: {
+          isPending: true,
+          ...match,
+        },
+      },
       {
         $group: {
           _id: null,
@@ -718,9 +785,11 @@ router.get("/summary", async (req, res) => {
       },
     ]);
 
+    // ─────────────────────────────────────────────
     // 4) Reduction + extra money
+    // ─────────────────────────────────────────────
     const [extraAgg] = await GameEntry.aggregate([
-      { $match: dateFilter },
+      { $match: match },
       {
         $group: {
           _id: null,
@@ -730,9 +799,16 @@ router.get("/summary", async (req, res) => {
       },
     ]);
 
-    // 5) Real-money revenue per method
+    // ─────────────────────────────────────────────
+    // 5) Real-money revenue per deposit method
+    // ─────────────────────────────────────────────
     const depositByMethod = await GameEntry.aggregate([
-      { $match: { type: "deposit", ...dateFilter } },
+      {
+        $match: {
+          type: "deposit",
+          ...match,
+        },
+      },
       {
         $group: {
           _id: "$method",
@@ -756,6 +832,9 @@ router.get("/summary", async (req, res) => {
     const totalRevenue =
       revenueCashApp + revenuePayPal + revenueChime + revenueVenmo;
 
+    // ─────────────────────────────────────────────
+    // 6) Response
+    // ─────────────────────────────────────────────
     res.json({
       totalFreeplay,
       totalPlayedGame,

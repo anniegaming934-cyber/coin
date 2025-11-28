@@ -1,17 +1,28 @@
-import React, { type FC, useMemo, useState } from "react";
+// src/components/GameStatCards.tsx
+
+import React, { type FC, useEffect, useState } from "react";
 import { DollarSign, Coins, TrendingUp } from "lucide-react";
+import { apiClient } from "../apiConfig";
 
 /* =========================
    1) TYPES
 ========================= */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-type MetricKey = "revenue" | "coins" | "net";
-
-interface GameStats {
-  name: string;
-  revenue: number;     // total sales based on coin flow
-  coins: number;       // total coins transacted (spent + earned + recharged)
-  net: number;         // profit/loss
+type Period = "day" | "week" | "month";
+interface GameSummary {
+  revenueCashApp: number;
+  revenueChime: number;
+  revenuePayPal: number;
+  revenueVenmo: number;
+  totalCoin: number;
+  totalDeposit: number;
+  totalExtraMoney: number;
+  totalFreeplay: number;
+  totalPendingCount: number;
+  totalPendingRemainingPay: number;
+  totalPlayedGame: number;
+  totalRedeem: number;
+  totalReduction: number;
+  totalRevenue: number;
 }
 
 interface StatCardProps {
@@ -21,16 +32,22 @@ interface StatCardProps {
   icon: React.ElementType;
   color: {
     border: string; // border-top color
-    text: string;   // icon/text accent
-    bg: string;     // icon pill bg
+    text: string; // icon/text accent
+    bg: string; // icon pill bg
   };
   isCurrency?: boolean;
   emphasizeNegative?: boolean; // style negatives in red/semibold
 }
 
+interface GameStatCardsProps {
+  // Optional: per-user summary: /api/game-entries/summary?username=...
+  username?: string | null;
+}
+
 /* =========================
    2) HELPERS
 ========================= */
+
 const formatCurrency = (n: number) =>
   n.toLocaleString(undefined, { style: "currency", currency: "USD" });
 
@@ -40,6 +57,7 @@ const formatNumber = (n: number) =>
 /* =========================
    3) REUSABLE STAT CARD
 ========================= */
+
 const StatCard: FC<StatCardProps> = ({
   title,
   value,
@@ -84,115 +102,213 @@ const StatCard: FC<StatCardProps> = ({
 };
 
 /* =========================
-   4) PAGE / WIDGET
+   4) COLOR PALETTES
 ========================= */
-const initialGames: GameStats[] = [
-  { name: "Sky Quest", revenue: 15420.5, coins: 185_340, net: -500.8 },
-  { name: "Cat Arena", revenue: 8020.25, coins: 99_120, net: 1120.35 },
-];
 
 const palettes = {
-  revenue: { border: "#0ea5a7", text: "#059669", bg: "rgba(16,185,129,0.12)" },   // teal/green
-  coins:   { border: "#6366f1", text: "#4f46e5", bg: "rgba(99,102,241,0.12)" },   // indigo
-  net:     { border: "#ef4444", text: "#ef4444", bg: "rgba(239,68,68,0.12)" },    // red
+  totalRevenue: {
+    border: "#0ea5a7",
+    text: "#059669",
+    bg: "rgba(16,185,129,0.12)",
+  }, // teal/green
+  deposit: {
+    border: "#6366f1",
+    text: "#4f46e5",
+    bg: "rgba(99,102,241,0.12)",
+  }, // indigo
+  redeem: {
+    border: "#ef4444",
+    text: "#ef4444",
+    bg: "rgba(239,68,68,0.12)",
+  }, // red
+  coins: {
+    border: "#f59e0b",
+    text: "#b45309",
+    bg: "rgba(245,158,11,0.12)",
+  }, // amber
+  extra: {
+    border: "#8b5cf6",
+    text: "#7c3aed",
+    bg: "rgba(139,92,246,0.12)",
+  }, // violet
+  pending: {
+    border: "#0ea5e9",
+    text: "#0369a1",
+    bg: "rgba(14,165,233,0.12)",
+  }, // sky
+  misc: {
+    border: "#6b7280",
+    text: "#374151",
+    bg: "rgba(107,114,128,0.12)",
+  }, // gray
 };
 
-export const GameStatCards: FC = () => {
-  const [games, setGames] = useState<GameStats[]>(initialGames);
-  const [selected, setSelected] = useState<string>(initialGames[0].name);
-  const [newGame, setNewGame] = useState("");
+/* =========================
+   5) MAIN COMPONENT
+   Uses /api/game-entries/summary data in cards
+========================= */
 
-  const active = useMemo(
-    () => games.find((g) => g.name === selected) ?? games[0],
-    [games, selected]
-  );
+export const GameStatCards: FC<GameStatCardsProps> = ({ username }) => {
+  const [summary, setSummary] = useState<GameSummary | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [period, setPeriod] = useState<Period>("day"); // "day" | "week" | "month"
 
-  const addGame = () => {
-    const name = newGame.trim();
-    if (!name) return;
+  useEffect(() => {
+    const fetchSummary = async () => {
+      setLoading(true);
+      try {
+        // Build query string with username + period
+        const params = new URLSearchParams();
+        params.set("period", period); // backend: "day" | "week" | "month"
+        if (username) params.set("username", username);
 
-    // demo randoms (replace with real data hookup)
-    const revenue = +(Math.random() * 20000 + 1000).toFixed(2);
-    const coins = Math.floor(Math.random() * 250000 + 25000);
-    const net = +(revenue * (Math.random() * 0.4 - 0.2)).toFixed(2); // -20% .. +20%
+        const res = await apiClient.get<GameSummary>(
+          `/api/game-entries/summary?${params.toString()}`
+        );
+        setSummary(res.data ?? null);
+      } catch (err) {
+        console.error("Failed to fetch game summary:", err);
+        setSummary(null);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    const entry: GameStats = { name, revenue, coins, net };
-    setGames((prev) => [entry, ...prev]);
-    setSelected(name);
-    setNewGame("");
+    fetchSummary();
+  }, [username, period]);
+
+  const revenueSubtitle =
+    summary &&
+    [
+      `CashApp ${formatCurrency(summary.revenueCashApp)}`,
+      `Chime ${formatCurrency(summary.revenueChime)}`,
+      `PayPal ${formatCurrency(summary.revenuePayPal)}`,
+      `Venmo ${formatCurrency(summary.revenueVenmo)}`,
+    ].join(" · ");
+
+  const periodLabel: Record<Period, string> = {
+    day: "Today",
+    week: "This Week",
+    month: "This Month",
   };
-
   return (
-    <div className="max-w-6xl mx-auto px-4 py-8">
-      <h1 className="text-3xl font-extrabold text-gray-900">StatCard Demonstration</h1>
+    <div className="max-w-8xl mx-auto px-4 py-8">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-extrabold text-gray-900">Overview</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Showing stats for{" "}
+            <span className="font-semibold">{periodLabel[period]}</span>
+          </p>
+        </div>
 
-      {/* Game selector */}
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {games.map((g) => (
+        {/* Day / Week / Month filter */}
+        <div className="inline-flex bg-gray-100 rounded-full p-1">
+          {(["day", "week", "month"] as Period[]).map((p) => (
             <button
-              key={g.name}
-              onClick={() => setSelected(g.name)}
-              className={`px-3 py-1.5 rounded-full text-sm border transition ${
-                selected === g.name
-                  ? "bg-indigo-600 text-white border-indigo-600"
-                  : "bg-white text-gray-700 border-gray-200 hover:border-gray-300"
+              key={p}
+              type="button"
+              onClick={() => setPeriod(p)}
+              className={`px-4 py-1.5 text-xs md:text-sm rounded-full font-medium transition ${
+                period === p
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
               }`}
-              title={`Switch to ${g.name}`}
             >
-              {g.name}
+              {p === "day" ? "Day" : p === "week" ? "Week" : "Month"}
             </button>
           ))}
         </div>
-
-        <div className="flex gap-2 ml-auto w-full sm:w-auto">
-          <input
-            value={newGame}
-            onChange={(e) => setNewGame(e.target.value)}
-            placeholder="Enter game name"
-            className="flex-1 sm:w-72 px-3 py-2 rounded-lg border focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-          <button
-            onClick={addGame}
-            className="px-4 py-2 rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-700"
-          >
-            Add Game
-          </button>
-        </div>
       </div>
+      {loading && (
+        <p className="mt-6 text-sm text-gray-500">Loading game statistics…</p>
+      )}
 
-      {/* Cards */}
-      {active && (
-        <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-6">
-          <StatCard
-            title="Total Revenue"
-            value={active.revenue}
-            subtitle="Total sales based on coin flow"
-            icon={DollarSign}
-            color={palettes.revenue}
-            isCurrency
-          />
-          <StatCard
-            title="Total Coins Transacted"
-            value={active.coins}
-            subtitle="Sum of all spent, earned, and recharged coins"
-            icon={Coins}
-            color={palettes.coins}
-          />
-          <StatCard
-            title="Net Profit/Loss"
-            value={active.net}
-            subtitle={
-              active.net < 0
-                ? "Current financial standing (negative)"
-                : "Current financial standing (positive)"
-            }
-            icon={TrendingUp}
-            color={palettes.net}
-            isCurrency
-            emphasizeNegative
-          />
-        </div>
+      {!loading && !summary && (
+        <p className="mt-6 text-sm text-gray-500">
+          No statistics available for this account.
+        </p>
+      )}
+
+      {summary && !loading && (
+        <>
+          {/* Row 1: Money overview */}
+          <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-6">
+            <StatCard
+              title="Total Revenue"
+              value={summary.totalRevenue}
+              subtitle={
+                revenueSubtitle || "Combined revenue across all payment methods"
+              }
+              icon={DollarSign}
+              color={palettes.totalRevenue}
+              isCurrency
+            />
+            <StatCard
+              title="Total Deposits"
+              value={summary.totalDeposit}
+              subtitle="All confirmed deposits (before reductions)"
+              icon={DollarSign}
+              color={palettes.deposit}
+              isCurrency
+            />
+            <StatCard
+              title="Total Redeems"
+              value={summary.totalRedeem}
+              subtitle="Total redeemed amount paid out to players"
+              icon={DollarSign}
+              color={palettes.redeem}
+              isCurrency
+            />
+            <StatCard
+              title="Net Coins"
+              value={summary.totalCoin}
+              subtitle="Overall coin balance (spent - earned - recharged)"
+              icon={Coins}
+              color={palettes.coins}
+              emphasizeNegative
+            />
+          </div>
+
+          {/* Row 2: Coins + extras */}
+          <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-6">
+            <StatCard
+              title="Freeplay Coins"
+              value={summary.totalFreeplay}
+              subtitle="Total coins given as freeplay"
+              icon={Coins}
+              color={palettes.extra}
+            />
+            <StatCard
+              title="Extra Money"
+              value={summary.totalExtraMoney}
+              subtitle="Additional adjustments/extra money"
+              icon={TrendingUp}
+              color={palettes.misc}
+              isCurrency
+              emphasizeNegative
+            />
+            <StatCard
+              title="Pending Payouts"
+              value={summary.totalPendingRemainingPay}
+              subtitle={`Pending requests: ${formatNumber(
+                summary.totalPendingCount
+              )}`}
+              icon={DollarSign}
+              color={palettes.pending}
+              isCurrency
+            />
+            <StatCard
+              title="Total Reduction"
+              value={summary.totalReduction}
+              subtitle="Manual reductions/adjustments applied"
+              icon={TrendingUp}
+              color={palettes.redeem}
+              isCurrency
+              emphasizeNegative
+            />
+          </div>
+        </>
       )}
     </div>
   );
