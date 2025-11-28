@@ -8,6 +8,7 @@ import { apiClient } from "../apiConfig";
    1) TYPES
 ========================= */
 type Period = "day" | "week" | "month";
+
 interface GameSummary {
   revenueCashApp: number;
   revenueChime: number;
@@ -191,6 +192,7 @@ export const GameStatCards: FC<GameStatCardsProps> = ({ username }) => {
     week: "This Week",
     month: "This Month",
   };
+
   return (
     <div className="max-w-8xl mx-auto px-4 py-8">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -220,6 +222,7 @@ export const GameStatCards: FC<GameStatCardsProps> = ({ username }) => {
           ))}
         </div>
       </div>
+
       {loading && (
         <p className="mt-6 text-sm text-gray-500">Loading game statistics…</p>
       )}
@@ -263,14 +266,14 @@ export const GameStatCards: FC<GameStatCardsProps> = ({ username }) => {
             <StatCard
               title="Net Coins"
               value={summary.totalCoin}
-              subtitle="Overall coin balance (spent - earned - recharged)"
+              subtitle="Overall coin balance (redeem − freeplay − played − deposit)"
               icon={Coins}
               color={palettes.coins}
               emphasizeNegative
             />
           </div>
 
-          {/* Row 2: Coins + extras */}
+          {/* Row 2: Coins + extras + pending */}
           <div className="mt-6 grid grid-cols-1 md:grid-cols-4 gap-6">
             <StatCard
               title="Freeplay Coins"
@@ -282,7 +285,7 @@ export const GameStatCards: FC<GameStatCardsProps> = ({ username }) => {
             <StatCard
               title="Extra Money"
               value={summary.totalExtraMoney}
-              subtitle="Additional adjustments/extra money"
+              subtitle="Additional adjustments / extra money"
               icon={TrendingUp}
               color={palettes.misc}
               isCurrency
@@ -301,7 +304,7 @@ export const GameStatCards: FC<GameStatCardsProps> = ({ username }) => {
             <StatCard
               title="Total Reduction"
               value={summary.totalReduction}
-              subtitle="Manual reductions/adjustments applied"
+              subtitle="Manual reductions / adjustments applied"
               icon={TrendingUp}
               color={palettes.redeem}
               isCurrency
