@@ -240,6 +240,7 @@ const UserHistory: FC<UserHistoryProps> = ({ username }) => {
 
   // 🔹 Summary totals computed from filtered entries (respects date range)
   //    Total Points Used = deposit + freeplay
+  //    Profit = Total Cash In (deposit) - Total Cash Out (redeem)
   const { totalDeposit, totalRedeem, totalFreeplay, totalPointsUsed, profit } =
     useMemo(() => {
       let deposit = 0;
@@ -254,7 +255,7 @@ const UserHistory: FC<UserHistoryProps> = ({ username }) => {
       });
 
       const totalPointsUsed = deposit + freeplay; // deposit + freeplay only
-      const profit = redeem - deposit; // profit = totalRedeem - totalDeposit
+      const profit = deposit - redeem; // ✅ profit = total cash in - total cash out
 
       return {
         totalDeposit: deposit,

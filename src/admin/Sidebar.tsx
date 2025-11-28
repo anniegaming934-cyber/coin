@@ -65,6 +65,7 @@ const Sidebar: FC<SidebarProps> = ({
       { id: "gameEntries", label: "Game Entries", icon: Gamepad },
       { id: "charts", label: "Charts", icon: BarChart2 },
       { id: "paymentsHistory", label: "Payment History", icon: Wallet },
+     { id: "gameLogins", label: "Game Logins", icon: LogIn },
       { id: "depositRecord", label: "Deposit Record", icon: FileUser },
       { id: "settings", label: "Settings", icon: Settings },
     ];

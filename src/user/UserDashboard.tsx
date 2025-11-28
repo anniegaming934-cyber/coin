@@ -13,6 +13,8 @@ import GameEntryForm from "./GameEntryForm";
 import RecentEntriesTable, { GameEntry } from "./RecentEntriesTable";
 import PaymentCombinedTable from "./PaymentCombinedTable";
 import PendingPayments from "./PendingPaymentsTable";
+import GameLogins from "../admin/GameLogin";
+// ✅ NEW
 
 const GAMES_API = "/api/games";
 const PAY_API = "/api";
@@ -40,10 +42,10 @@ const UserDashboard: FC<UserDashboardProps> = ({
     chime: 0,
   });
 
-  // 🔵 Optional: work-session (from UserSessionBar) – if you don't want this, remove all workSignedIn logic
+  // Optional: work-session (from UserSessionBar)
   const [workSignedIn, setWorkSignedIn] = useState(false);
 
-  // 🔐 Simple auth check each render
+  // Simple auth check each render
   const token =
     typeof window !== "undefined" ? localStorage.getItem("token") : null;
   const isAuthed = !!token && !!username;
@@ -141,7 +143,6 @@ const UserDashboard: FC<UserDashboardProps> = ({
           username={username}
           email={email}
           onLogout={onLogout}
-          // if you kept work-logging version:
           // @ts-expect-error if prop not yet added in UserSessionBar
           onSessionChange={setWorkSignedIn}
         />
@@ -154,6 +155,7 @@ const UserDashboard: FC<UserDashboardProps> = ({
             {activeSection === "paymentsHistory" && "Payment History"}
             {activeSection === "depositRecord" && "Recent Game Entries"}
             {activeSection === "gameEntries" && "Game Entries"}
+            {activeSection === "gameLogins" && "Game Logins" /* ✅ NEW */}
             {activeSection === "settings" && "Settings"}
           </h1>
         </header>
@@ -204,6 +206,18 @@ const UserDashboard: FC<UserDashboardProps> = ({
           {activeSection === "games" && (
             <div className="mt-4">
               <UserTable username={username} />
+            </div>
+          )}
+
+          {/* ✅ NEW: GAME LOGINS TAB – just table/forms for user/admin logins */}
+          {activeSection === "gameLogins" && (
+            <div className="mt-4">
+              <GameLogins
+                showAdminForm={false}
+                showUserForm={false}
+                showAdminTable={false}
+                showUserTable={true}
+              />
             </div>
           )}
 
