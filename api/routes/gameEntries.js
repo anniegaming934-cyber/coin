@@ -771,9 +771,11 @@ router.get("/summary", async (req, res) => {
     //    - For each (username + playerTag):
     //       * if latest deposit has reduction > 0 → use that as pending
     //       * else if latest redeem isPending → use its remainingPay (or cashout - paid)
+    //    In addition to totals, we also build pendingEntries[]
     // ─────────────────────────────────────────────
     let totalPendingRemainingPay = 0;
     let totalPendingCount = 0;
+    const pendingEntries = [];
 
     const pendingMatch = {
       ...match,
@@ -807,11 +809,13 @@ router.get("/summary", async (req, res) => {
       let pendingReduction = 0;
       let pendingRedeem = 0;
       let totalPending = 0;
+      let baseDoc = null;
 
       // 1️⃣ If there is a deposit, it is the source of truth
       if (lastDeposit) {
         pendingReduction = toNumber(lastDeposit.reduction, 0);
         totalPending = pendingReduction;
+        baseDoc = lastDeposit;
       } else if (lastRedeem && lastRedeem.isPending) {
         // 2️⃣ If no deposit, fall back to redeem pending
         const totalPaid = toNumber(lastRedeem.totalPaid ?? 0, 0);
@@ -826,11 +830,40 @@ router.get("/summary", async (req, res) => {
         );
 
         totalPending = pendingRedeem;
+        baseDoc = lastRedeem;
       }
 
-      if (totalPending > 0) {
+      if (baseDoc && totalPending > 0) {
         totalPendingRemainingPay += totalPending;
         totalPendingCount += 1;
+
+        const totalPaid = toNumber(baseDoc.totalPaid ?? 0, 0);
+        const totalCashout = toNumber(
+          baseDoc.totalCashout ?? baseDoc.amountFinal ?? 0,
+          0
+        );
+
+        pendingEntries.push({
+          _id: String(baseDoc._id),
+          type: baseDoc.type,
+          username: baseDoc.username,
+          playerName: baseDoc.playerName || "",
+          playerTag: baseDoc.playerTag || "",
+          gameName: baseDoc.gameName,
+          method: baseDoc.method || "",
+          totalPaid,
+          totalCashout,
+          remainingPay: totalPending,
+          reduction: pendingReduction,
+          date:
+            baseDoc.date ||
+            (baseDoc.createdAt
+              ? new Date(baseDoc.createdAt).toISOString().slice(0, 10)
+              : undefined),
+          createdAt: baseDoc.createdAt
+            ? new Date(baseDoc.createdAt).toISOString()
+            : undefined,
+        });
       }
     }
 
@@ -892,6 +925,7 @@ router.get("/summary", async (req, res) => {
       totalCoin,
       totalPendingRemainingPay,
       totalPendingCount,
+      pendingEntries, // <-- list of pending items (same shape as /pending)
       totalReduction: extraAgg?.totalReduction || 0,
       totalExtraMoney: extraAgg?.totalExtraMoney || 0,
       revenueCashApp,
