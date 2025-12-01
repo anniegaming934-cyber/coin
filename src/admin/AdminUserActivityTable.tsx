@@ -33,7 +33,14 @@ export interface UserRow {
   isOnline: boolean;
 }
 
-const AdminUserActivityTable: React.FC = () => {
+interface AdminUserActivityTableProps {
+  // Optional: when you click a user, parent can show history or game-entries
+  onSelectUser?: (username: string) => void;
+}
+
+const AdminUserActivityTable: React.FC<AdminUserActivityTableProps> = ({
+  onSelectUser,
+}) => {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -96,7 +103,7 @@ const AdminUserActivityTable: React.FC = () => {
       setLoading(true);
       setError(null);
 
-      // ✅ just get all sessions (up to 200), no weird "?username" with no value
+      // get all login sessions
       const { data } = await apiClient.get<RawActivity[]>(API_BASE);
 
       const map = new Map<string, UserRow>();
@@ -146,7 +153,6 @@ const AdminUserActivityTable: React.FC = () => {
     }
   };
 
-  // Pretty date like "July 15, 2026"
   const formatPrettyDate = (iso: string | null): string => {
     if (!iso) return "—";
     const d = new Date(iso);
@@ -169,7 +175,7 @@ const AdminUserActivityTable: React.FC = () => {
   };
 
   const getStatus = (u: UserRow): "online" | "offline" => {
-    if (u.isOnline) return "online"; // ✅ trust backend isOnline
+    if (u.isOnline) return "online";
     if (!u.lastLogin) return "offline";
     if (!u.lastLogout) return "online";
     const loginTime = new Date(u.lastLogin).getTime();
@@ -215,7 +221,7 @@ const AdminUserActivityTable: React.FC = () => {
 
     try {
       setSavingEdit(true);
-      // TODO: call real API for updating username in LoginSession + main User model
+      // TODO: hook this to a real backend endpoint for renaming a user
       console.log("Update username:", editingUser.username, "→", editUsername);
 
       setUsers((prev) =>
@@ -243,7 +249,7 @@ const AdminUserActivityTable: React.FC = () => {
     setError(null);
 
     try {
-      // ✅ matches your backend: DELETE /api/logins/user/:username
+      // DELETE /api/logins/user/:username  (clear all sessions for that user)
       await apiClient.delete(
         `${API_BASE}/user/${encodeURIComponent(selectedUser.username)}`
       );
@@ -288,7 +294,7 @@ const AdminUserActivityTable: React.FC = () => {
       setResetError("");
       setResetSuccess("");
 
-      // TODO: call real reset-password endpoint
+      // TODO: call real reset-password endpoint for this user
       console.log("Reset PW for:", pwUser.username, "→", newPassword);
 
       setResetSuccess("Password reset successfully.");
@@ -314,15 +320,38 @@ const AdminUserActivityTable: React.FC = () => {
       header: "User",
       cell: ({ row }) => {
         const u = row.original;
-        return (
+        const clickable = !!onSelectUser;
+
+        const content = (
           <div className="flex items-center gap-2">
             <User className="h-4 w-4 text-indigo-500" />
-            <span className="font-medium text-gray-800">{u.username}</span>
+            <span
+              className={
+                clickable
+                  ? "font-medium text-indigo-700 hover:underline cursor-pointer"
+                  : "font-medium text-gray-800"
+              }
+            >
+              {u.username}
+            </span>
           </div>
+        );
+
+        if (!clickable) {
+          return content;
+        }
+
+        return (
+          <button
+            type="button"
+            onClick={() => onSelectUser(u.username)}
+            className="text-left w-full"
+          >
+            {content}
+          </button>
         );
       },
     },
-
     {
       accessorKey: "lastLogin",
       header: "Checked In",

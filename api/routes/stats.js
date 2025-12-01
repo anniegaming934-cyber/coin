@@ -12,7 +12,10 @@ const RANGE_DAYS = {
   year: 365,
 };
 
-// GET /api/stats/game-coins?range=day|week|month|year
+/**
+ * GET /api/stats/game-coins?range=day|week|month|year
+ * Timeseries of coins per game per day
+ */
 router.get("/stats/game-coins", async (req, res) => {
   const range = String(req.query.range || "week").toLowerCase();
   const days = RANGE_DAYS[range] || RANGE_DAYS.week;
@@ -64,6 +67,69 @@ router.get("/stats/game-coins", async (req, res) => {
   } catch (err) {
     console.error("GET /api/stats/game-coins error:", err);
     return res.status(500).json({ message: "Failed to load stats" });
+  }
+});
+
+/**
+ * GET /api/totals?range=day|week|month|year
+ *
+ * Returns total coins for the selected range:
+ * {
+ *   coinsEarned: number,   // sum of freeplay
+ *   coinsSpent: number,    // sum of redeem
+ *   coinsRecharged: number,// sum of deposit
+ *   netCoins: number       // earned + recharged - spent
+ * }
+ */
+router.get("/totals", async (req, res) => {
+  const range = String(req.query.range || "week").toLowerCase();
+  const days = RANGE_DAYS[range] || RANGE_DAYS.week;
+
+  try {
+    await connectDB();
+
+    const now = new Date();
+    const startDate = new Date(now);
+    startDate.setDate(now.getDate() - (days - 1));
+
+    const pipeline = [
+      {
+        $match: {
+          createdAt: { $gte: startDate },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalFreeplay: { $sum: "$freeplay" },
+          totalRedeem: { $sum: "$redeem" },
+          totalDeposit: { $sum: "$deposit" },
+        },
+      },
+    ];
+
+    const result = await UserActivity.aggregate(pipeline);
+    const agg = result[0] || {
+      totalFreeplay: 0,
+      totalRedeem: 0,
+      totalDeposit: 0,
+    };
+
+    const coinsEarned = agg.totalFreeplay || 0;
+    const coinsSpent = agg.totalRedeem || 0;
+    const coinsRecharged = agg.totalDeposit || 0;
+    const netCoins = coinsEarned + coinsRecharged - coinsSpent;
+
+    return res.json({
+      coinsEarned,
+      coinsSpent,
+      coinsRecharged,
+      netCoins,
+      range,
+    });
+  } catch (err) {
+    console.error("GET /api/totals error:", err);
+    return res.status(500).json({ message: "Failed to load totals" });
   }
 });
 
