@@ -14,6 +14,7 @@ import facebookLeadRoutes from "./routes/facebookLeads.js";
 import gameEntryRoutes from "./routes/gameEntries.js";
 import salariesRouter from "./routes/salary.js";
 import schedulesRouter from "./routes/schedules.js";
+import facebookDetailRoutes from "./routes/facebookDetailRoutes.js";
 
 import gameLoginRoutes from "./routes/gameLogin.js";
 if (process.env.NODE_ENV !== "production") {
@@ -61,6 +62,7 @@ app.use("/api", healthRoutes);
 app.use("/api/admin/users", adminUserRoutes);
 app.use("/api/facebook-leads", facebookLeadRoutes);
 app.use("/api/game-entries", gameEntryRoutes);
+app.use("/api/facebook-details", facebookDetailRoutes);
 
 app.use("/api/salaries", salariesRouter);
 app.use("/api/game-logins", gameLoginRoutes);
