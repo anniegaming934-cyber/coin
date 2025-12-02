@@ -342,7 +342,8 @@ router.get("/games/:id/recharge-history", async (req, res) => {
     const year = Number(req.query.year);
     const month = Number(req.query.month);
 
-    let dateFilter: Record<string, any> = {};
+    // ✅ JS only – no type annotation
+    let dateFilter = {};
     if (
       Number.isFinite(year) &&
       Number.isFinite(month) &&
@@ -367,7 +368,7 @@ router.get("/games/:id/recharge-history", async (req, res) => {
     let running = 0;
 
     const history = entries.map((e) => {
-      const amt = Number(e.amountFinal ?? e.amount ?? 0);
+      const amt = Number(e.amountFinal ?? e.amount ?? 0) || 0;
 
       const beforeCoins = running;
       const afterCoins = beforeCoins + amt;
