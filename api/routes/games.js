@@ -2,7 +2,7 @@
 import express from "express";
 import { connectDB } from "../config/db.js";
 import Game from "../models/Game.js";
-import GameEntry from "../models/GameEntry.js"; // ✅ needed for aggregate
+import GameEntry from "../models/GameEntry.js"; // ✅ needed for aggregate & history
 import UserActivity from "../models/UserActivity.js";
 import { safeNum } from "../utils/numbers.js";
 
@@ -13,13 +13,14 @@ const router = express.Router();
  *   app.use("/api", gameRoutes)
  *
  * Routes:
- *   GET    /api/games                 -> with ?q= returns string[] (names), else enriched Game[]
- *                                       optional ?year=YYYY&month=MM filters GameEntry totals by month
+ *   GET    /api/games                       -> with ?q= returns string[] (names), else enriched Game[]
+ *                                             optional ?year=YYYY&month=MM filters GameEntry totals by month
  *   POST   /api/games
  *   PUT    /api/games/:id
  *   DELETE /api/games/:id
- *   POST   /api/games/:id/add-moves   -> logs UserActivity only
+ *   POST   /api/games/:id/add-moves         -> logs UserActivity only
  *   POST   /api/games/:id/reset-recharge
+ *   GET    /api/games/:id/recharge-history  -> full history of deposits for this game
  */
 router.get("/games", async (req, res) => {
   try {
@@ -318,6 +319,83 @@ router.post("/games/:id/reset-recharge", async (req, res) => {
   } catch (err) {
     console.error("POST /api/games/:id/reset-recharge error:", err);
     res.status(500).json({ message: "Failed to reset game recharge" });
+  }
+});
+
+/**
+ * GET /api/games/:id/recharge-history
+ *
+ * Returns all deposit (recharge) entries for a specific game.
+ * Optional query: ?year=YYYY&month=MM to filter by month.
+ */
+router.get("/games/:id/recharge-history", async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    await connectDB();
+
+    const game = await Game.findOne({ id: Number(id) }).lean();
+    if (!game) {
+      return res.status(404).json({ message: "Game not found" });
+    }
+
+    const year = Number(req.query.year);
+    const month = Number(req.query.month);
+
+    let dateFilter: Record<string, any> = {};
+    if (
+      Number.isFinite(year) &&
+      Number.isFinite(month) &&
+      month >= 1 &&
+      month <= 12
+    ) {
+      const mm = String(month).padStart(2, "0");
+      const prefix = `${year}-${mm}`;
+      dateFilter = { date: { $regex: `^${prefix}` } };
+    }
+
+    // Fetch all deposit (recharge) entries for this game
+    const entries = await GameEntry.find({
+      gameName: game.name,
+      type: "deposit",
+      ...dateFilter,
+    })
+      .sort({ date: 1, _id: 1 }) // oldest first
+      .lean();
+
+    // Build running before/after coins
+    let running = 0;
+
+    const history = entries.map((e) => {
+      const amt = Number(e.amountFinal ?? e.amount ?? 0);
+
+      const beforeCoins = running;
+      const afterCoins = beforeCoins + amt;
+      running = afterCoins;
+
+      return {
+        id: e._id,
+
+        // GAME METADATA YOU REQUESTED
+        name: game.name,
+        lastRechargeDate: game.lastRechargeDate || null,
+        updatedAt: game.updatedAt,
+
+        // HISTORY ENTRY INFO
+        date: e.date,
+        amount: amt,
+        beforeCoins,
+        afterCoins,
+        username: e.username,
+        createdBy: e.createdBy,
+        method: e.method,
+      };
+    });
+
+    return res.json(history);
+  } catch (err) {
+    console.error("GET /api/games/:id/recharge-history error:", err);
+    return res.status(500).json({ message: "Failed to load recharge history" });
   }
 });
 

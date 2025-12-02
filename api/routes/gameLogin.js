@@ -11,7 +11,7 @@ router.get("/", async (req, res) => {
   try {
     const { ownerType } = req.query;
 
-    const filter = {};
+    const filter = {}; // ← removed ": any"
     if (ownerType === "admin" || ownerType === "user") {
       filter.ownerType = ownerType;
     }
@@ -26,7 +26,7 @@ router.get("/", async (req, res) => {
 
 /**
  * POST /api/game-logins
- * body: { ownerType, gameName, loginUsername, password, gameLink? }
+ * body: { ownerType, gameName, loginUsername?, password?, gameLink? }
  */
 router.post("/", async (req, res) => {
   try {
@@ -35,18 +35,32 @@ router.post("/", async (req, res) => {
     if (!ownerType || !["admin", "user"].includes(ownerType)) {
       return res.status(400).json({ message: "Invalid ownerType" });
     }
-    if (!gameName || !loginUsername || !password) {
-      return res.status(400).json({
-        message: "gameName, loginUsername, and password are required",
-      });
+
+    if (!gameName || !gameName.trim()) {
+      return res.status(400).json({ message: "gameName is required" });
+    }
+
+    // Only enforce username/password for admin entries
+    if (ownerType === "admin") {
+      if (
+        !loginUsername ||
+        !loginUsername.trim() ||
+        !password ||
+        !password.trim()
+      ) {
+        return res.status(400).json({
+          message: "loginUsername and password are required for admin logins",
+        });
+      }
     }
 
     const created = await GameLogin.create({
       ownerType,
-      gameName,
-      loginUsername,
-      password,
-      gameLink,
+      gameName: gameName.trim(),
+      gameLink: gameLink?.trim() || undefined,
+      // Only set these for admin; user entries will have them undefined
+      loginUsername: ownerType === "admin" ? loginUsername.trim() : undefined,
+      password: ownerType === "admin" ? password.trim() : undefined,
     });
 
     res.status(201).json(created);
@@ -58,28 +72,53 @@ router.post("/", async (req, res) => {
 
 /**
  * PUT /api/game-logins/:id
- * body: { gameName, loginUsername, password, gameLink? }
+ * body (from frontend): { gameName, loginUsername?, password?, gameLink? }
+ * - For admin rows: gameName + loginUsername + password required
+ * - For user rows: only gameName required
  */
 router.put("/:id", async (req, res) => {
   try {
     const { id } = req.params;
     const { gameName, loginUsername, password, gameLink } = req.body;
 
-    if (!gameName || !loginUsername || !password) {
+    const existing = await GameLogin.findById(id);
+    if (!existing) {
+      return res.status(404).json({ message: "Game login not found" });
+    }
+
+    if (!gameName || !gameName.trim()) {
       return res.status(400).json({
-        message: "gameName, loginUsername, and password are required",
+        message: "gameName is required",
       });
     }
 
-    const updated = await GameLogin.findByIdAndUpdate(
-      id,
-      { gameName, loginUsername, password, gameLink },
-      { new: true }
-    );
+    const updateData = {
+      // ← removed ": any"
+      gameName: gameName.trim(),
+      gameLink: gameLink?.trim() || undefined,
+    };
 
-    if (!updated) {
-      return res.status(404).json({ message: "Game login not found" });
+    if (existing.ownerType === "admin") {
+      // For admin records, still enforce username/password
+      if (
+        !loginUsername ||
+        !loginUsername.trim() ||
+        !password ||
+        !password.trim()
+      ) {
+        return res.status(400).json({
+          message: "loginUsername and password are required for admin logins",
+        });
+      }
+      updateData.loginUsername = loginUsername.trim();
+      updateData.password = password.trim();
+    } else {
+      // For user records, do not touch loginUsername/password
     }
+
+    const updated = await GameLogin.findByIdAndUpdate(id, updateData, {
+      new: true,
+    });
 
     res.json(updated);
   } catch (err) {

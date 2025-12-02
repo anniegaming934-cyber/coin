@@ -1,29 +1,17 @@
 // GameTable.tsx
-import React from "react";
+import React, { useState } from "react";
 import { ColumnDef } from "@tanstack/react-table";
-import {
-  Edit,
-  RotateCcw,
-  Trash2,
-  TrendingDown,
-  TrendingUp,
-} from "lucide-react";
-import { DataTable } from "../DataTable"; // your wrapper
+import { TrendingDown, TrendingUp, Clock3 } from "lucide-react";
+import { DataTable } from "../DataTable";
+import GameRechargeHistory from "./GameRechargeHistory";
 
 export interface GameRowDT {
   id: number;
   name: string;
   coinsRecharged: number; // coins you bought / loaded
   lastRechargeDate?: string;
-  totalCoins?: number; // 👈 net coins from backend (profit/loss in coins)
+  totalCoins?: number; // net coins from backend (profit/loss in coins)
 }
-
-type Handlers = {
-  onEditStart: (id: number) => void;
-  onResetRecharge: (id: number) => void;
-  onDelete: (id: number) => void;
-  coinValue: number; // 1 coin => how many $
-};
 
 // helper to show "Today / Yesterday / X days ago"
 function formatRelativeDay(dateStr?: string) {
@@ -40,12 +28,8 @@ function formatRelativeDay(dateStr?: string) {
   return `${days} days ago`;
 }
 
-export const makeGameColumns = ({
-  onEditStart,
-  onResetRecharge,
-  onDelete,
-  coinValue,
-}: Handlers): ColumnDef<GameRowDT>[] => [
+// eslint-disable-next-line react-refresh/only-export-components
+export const makeGameColumns = (coinValue: number): ColumnDef<GameRowDT>[] => [
   {
     header: "Game",
     accessorKey: "name",
@@ -82,7 +66,7 @@ export const makeGameColumns = ({
     },
   },
 
-  // 🔥 TOTAL COIN (per game net) = coinsRecharged + backend totalCoins
+  // TOTAL COIN (per game net) = coinsRecharged + backend totalCoins
   {
     header: "Total coin (per game net)",
     id: "totalCoin",
@@ -93,7 +77,6 @@ export const makeGameColumns = ({
       const netFromBackend =
         typeof g.totalCoins === "number" ? g.totalCoins : 0;
 
-      // 👇 what we show in table
       const totalForDisplay = recharged + netFromBackend;
 
       const cls =
@@ -111,7 +94,7 @@ export const makeGameColumns = ({
     },
   },
 
-  // 💰 P&L in money: net (totalCoins from backend) * value
+  // P&L in money: net (totalCoins from backend) * value
   {
     header: "P&L",
     id: "pnl",
@@ -121,7 +104,6 @@ export const makeGameColumns = ({
       const netFromBackend =
         typeof g.totalCoins === "number" ? g.totalCoins : 0;
 
-      // profit in coins = just the net part
       const netProfitCoins = netFromBackend;
       const pnl = netProfitCoins * coinValue;
 
@@ -135,40 +117,13 @@ export const makeGameColumns = ({
           }`}
         >
           <Icon size={14} className="mr-1" />
-          {pnl.toLocaleString("en-US", { style: "currency", currency: "USD" })}
+          {pnl.toLocaleString("en-US", {
+            style: "currency",
+            currency: "USD",
+          })}
         </span>
       );
     },
-  },
-
-  {
-    header: "Actions",
-    id: "actions",
-    cell: ({ row }) => (
-      <div className="flex items-center justify-end gap-2">
-        <button
-          onClick={() => onEditStart(row.original.id)}
-          className="p-1 text-indigo-600 hover:text-indigo-800 rounded hover:bg-indigo-100"
-          title="Edit recharge"
-        >
-          <Edit size={16} />
-        </button>
-        <button
-          onClick={() => onResetRecharge(row.original.id)}
-          className="p-1 text-amber-600 hover:text-amber-800 rounded hover:bg-amber-100"
-          title="Reset recharge"
-        >
-          <RotateCcw size={16} />
-        </button>
-        <button
-          onClick={() => onDelete(row.original.id)}
-          className="p-1 text-red-600 hover:text-red-800 rounded hover:bg-red-100"
-          title="Delete"
-        >
-          <Trash2 size={16} />
-        </button>
-      </div>
-    ),
   },
 ];
 
@@ -179,13 +134,58 @@ const GameTable: React.FC<{
   onResetRecharge: (id: number) => void;
   onDelete: (id: number) => void;
 }> = ({ data, coinValue, onEditStart, onResetRecharge, onDelete }) => {
-  const columns = makeGameColumns({
-    coinValue,
-    onEditStart,
-    onResetRecharge,
-    onDelete,
-  });
-  return <DataTable columns={columns} data={data} />;
+  const [historyGameId, setHistoryGameId] = useState<number | null>(null);
+
+  const columns = makeGameColumns(coinValue);
+
+  const closeHistory = () => setHistoryGameId(null);
+
+  return (
+    <>
+      <DataTable<GameRowDT, unknown>
+        columns={columns}
+        data={data}
+        rowActions={{
+          onHistory: (row) => setHistoryGameId(row.id),
+          onEdit: (row) => onEditStart(row.id),
+          onReset: (row) => onResetRecharge(row.id),
+          onDelete: (row) => onDelete(row.id),
+        }}
+      />
+
+      {/* Separate modal with history table */}
+      {historyGameId !== null && (
+        <div className="fixed inset-0 z-40">
+          {/* overlay */}
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={closeHistory}
+          />
+          {/* modal */}
+          <div className="absolute inset-0 flex items-center justify-center p-4">
+            <div className="relative w-full max-w-3xl rounded-2xl border border-white/10 bg-white text-gray-900 shadow-2xl">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                <div className="flex items-center gap-2">
+                  <Clock3 className="text-indigo-600" size={18} />
+                  <h2 className="text-sm font-semibold">Recharge History</h2>
+                </div>
+                <button
+                  onClick={closeHistory}
+                  className="px-2 py-1 text-xs rounded-md bg-gray-100 hover:bg-gray-200 text-gray-700"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="p-4">
+                <GameRechargeHistory gameId={historyGameId} />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 };
 
 export default GameTable;

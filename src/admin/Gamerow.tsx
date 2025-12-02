@@ -8,8 +8,10 @@ import {
   X,
   RotateCcw,
   Trash2,
+  Clock3, // ⬅ NEW: history icon
 } from "lucide-react";
 import { apiClient } from "../apiConfig";
+import GameRechargeHistory from "./GameRechargeHistory"; // ⬅ NEW: history table component
 
 export interface Game {
   id: number;
@@ -80,6 +82,9 @@ const GameRow: FC<GameRowProps> = ({
   const [totalFromEntries, setTotalFromEntries] = useState<number>(0);
   const [loadingEntries, setLoadingEntries] = useState<boolean>(false);
 
+  // ⬅ NEW: toggle for showing recharge history table
+  const [showHistory, setShowHistory] = useState<boolean>(false);
+
   const inputBox =
     "w-full p-2 text-sm border border-gray-700 rounded-md bg-[#0b1222] text-gray-100 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500";
 
@@ -134,8 +139,9 @@ const GameRow: FC<GameRowProps> = ({
     loadTotals();
   }, [game.name]);
 
-  // Total coins = net from entries according to type rules
-  const totalCoinValue = typeof game.totalCoins === "number" ? game.totalCoins : 0;
+  // Total coins displayed (from backend aggregated totals)
+  const totalCoinValue =
+    typeof game.totalCoins === "number" ? game.totalCoins : 0;
 
   const pnl = totalCoinValue * coinValue;
   const isProfit = pnl >= 0;
@@ -154,8 +160,7 @@ const GameRow: FC<GameRowProps> = ({
 
     const newCoinsRecharged = (game.coinsRecharged || 0) + rechargeChange;
 
-    // Choose what totalCoinsAfter means for backend; here:
-    // net from entries + new recharge
+    // totalCoinsAfter = current net from entries + updated recharge
     const totalCoinsAfter = Math.abs(totalFromEntries + newCoinsRecharged);
 
     onUpdate(game.id, 0, 0, rechargeChange, totalCoinsAfter, dateOrUndefined);
@@ -265,73 +270,84 @@ const GameRow: FC<GameRowProps> = ({
   );
 
   return (
-    <div className="grid grid-cols-12 gap-4 py-4 px-4 hover:bg-gray-50 transition duration-150 border-b border-gray-200">
-      {/* Game name */}
-      <div className="col-span-4">{nameCell}</div>
+    <>
+      {/* Main row */}
+      <div className="grid grid-cols-12 gap-4 py-4 px-4 hover:bg-gray-50 transition duration-150 border-b border-gray-200">
+        {/* Game name */}
+        <div className="col-span-4">{nameCell}</div>
 
-      {/* Coins recharged */}
-      <div className="col-span-2 text-sm text-gray-700">
-        <span className="font-mono text-blue-600">
-          {game.coinsRecharged.toLocaleString()}
-        </span>
+        {/* Coins recharged */}
+        <div className="col-span-2 text-sm text-gray-700">
+          <span className="font-mono text-blue-600">
+            {game.coinsRecharged.toLocaleString()}
+          </span>
+        </div>
+
+        {/* Last recharge date */}
+        <div className="col-span-2 text-sm text-gray-700">
+          <span className="text-[12px] text-gray-600">
+            {game.lastRechargeDate || "—"}
+          </span>
+        </div>
+
+        {/* Total coins (from backend aggregation) */}
+        <div className="col-span-2 text-sm">
+          <span
+            className={`font-mono ${
+              totalCoinValue < 0
+                ? "text-red-700"
+                : totalCoinValue > 0
+                ? "text-green-700"
+                : "text-gray-500"
+            }`}
+          >
+            {loadingEntries ? "…" : totalCoinValue.toLocaleString()}
+          </span>
+        </div>
+
+        {/* PnL + actions */}
+        <div className="col-span-2 text-sm flex items-center justify-end space-x-2">
+          <span
+            className={`px-2 py-1 rounded-full text-xs font-bold flex items-center ${pnlClass} w-24 justify-center`}
+          >
+            <PnlIcon size={14} className="mr-1" />
+            {formatCurrency(pnl)}
+          </span>
+
+          {/* NEW: history toggle */}
+          <button
+            onClick={() => setShowHistory((prev) => !prev)}
+            className="p-1 text-slate-600 hover:text-slate-800 transition duration-150 rounded-full hover:bg-slate-100"
+            title="View recharge history"
+          >
+            <Clock3 size={16} />
+          </button>
+
+          <button
+            onClick={() => onResetRecharge(game.id)}
+            className="p-1 text-amber-600 hover:text-amber-700 transition duration-150 rounded-full hover:bg-amber-100"
+            title="Reset recharge"
+          >
+            <RotateCcw size={16} />
+          </button>
+
+          <button
+            onClick={() => onDelete(game.id)}
+            className="p-1 text-red-500 hover:text-red-700 transition duration-150 rounded-full hover:bg-red-100"
+            title="Delete game"
+          >
+            <Trash2 size={16} />
+          </button>
+        </div>
       </div>
 
-      {/* Last recharge date */}
-      <div className="col-span-2 text-sm text-gray-700">
-        <span className="text-[12px] text-gray-600">
-          {game.lastRechargeDate || "—"}
-        </span>
-      </div>
-
-      {/* Total coin from entries (redeem add, deposit/freeplay minus) */}
-      <div className="col-span-2 text-sm">
-        <span
-          className={`font-mono ${
-            totalCoinValue < 0
-              ? "text-red-700"
-              : totalCoinValue > 0
-              ? "text-green-700"
-              : "text-gray-500"
-          }`}
-        >
-          {loadingEntries ? "…" : totalCoinValue.toLocaleString()}
-        </span>
-      </div>
-
-      {/* PnL + actions */}
-      <div className="col-span-2 text-sm flex items-center justify-end space-x-2">
-        <span
-          className={`px-2 py-1 rounded-full text-xs font-bold flex items-center ${pnlClass} w-24 justify-center`}
-        >
-          <PnlIcon size={14} className="mr-1" />
-          {formatCurrency(pnl)}
-        </span>
-
-        <button
-          onClick={() => onEditStart(game.id)}
-          className="p-1 text-indigo-500 hover:text-indigo-700 transition duration-150 rounded-full hover:bg-indigo-100"
-          title="Edit recharge"
-        >
-          <Edit size={16} />
-        </button>
-
-        <button
-          onClick={() => onResetRecharge(game.id)}
-          className="p-1 text-amber-600 hover:text-amber-700 transition duration-150 rounded-full hover:bg-amber-100"
-          title="Reset recharge"
-        >
-          <RotateCcw size={16} />
-        </button>
-
-        <button
-          onClick={() => onDelete(game.id)}
-          className="p-1 text-red-500 hover:text-red-700 transition duration-150 rounded-full hover:bg-red-100"
-          title="Delete game"
-        >
-          <Trash2 size={16} />
-        </button>
-      </div>
-    </div>
+      {/* Separate history table row */}
+      {showHistory && (
+        <div className="px-4 pb-4 border-b border-gray-200 bg-gray-50">
+          <GameRechargeHistory gameId={game.id} />
+        </div>
+      )}
+    </>
   );
 };
 

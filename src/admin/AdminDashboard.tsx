@@ -10,16 +10,6 @@ import Sidebar, { type SidebarSection } from "./Sidebar";
 import UserAdminTable from "./UserAdminTable";
 import UserHistory from "./AdminUserHistory";
 import AdminUserActivityTable from "./AdminUserActivityTable";
-import { DataTable } from "../DataTable";
-import { ColumnDef } from "@tanstack/react-table";
-import {
-  Edit,
-  RotateCcw,
-  Trash2,
-  TrendingDown,
-  TrendingUp,
-  Gamepad,
-} from "lucide-react";
 import SalaryForm from "./SalaryForm";
 import FacebookLeadForm from "../FacebookLeadForm";
 import UserAllCashoutTable from "./UserALLCashout";
@@ -27,6 +17,7 @@ import GameLogins from "./GameLogin";
 import ScheduleForm from "./ScheduleForm";
 import AdminPendingUsersTable from "./AdminPendingUsersTable";
 import GameStatCards from "./GameStatCards";
+import GameTable, { type GameRowDT } from "./GameTable"; // ⬅ NEW: use GameTable
 
 interface Game {
   id: number;
@@ -116,125 +107,6 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
       console.error("Failed to load payment totals:", e);
     }
   };
-
-  // ---------------------------
-  // (Games table) stats only used for per-game P&L
-  // ---------------------------
-  const gameColumns = useMemo<ColumnDef<Game>[]>(() => {
-    return [
-      {
-        header: "Game",
-        accessorKey: "name",
-        cell: ({ row }) => (
-          <div className="flex items-center gap-2">
-            <Gamepad size={18} className="text-indigo-500 hidden md:block" />
-            <span className="font-medium text-gray-800">
-              {row.original.name}
-            </span>
-          </div>
-        ),
-      },
-      {
-        header: "Coin Recharged",
-        accessorKey: "coinsRecharged",
-        cell: ({ getValue }) => (
-          <span className="font-mono text-blue-700">
-            {Number(getValue() ?? 0).toLocaleString()}
-          </span>
-        ),
-      },
-      {
-        header: "Recharge Date",
-        accessorKey: "lastRechargeDate",
-        cell: ({ getValue }) => (
-          <span className="text-xs text-gray-600">
-            {(getValue() as string) || "—"}
-          </span>
-        ),
-      },
-      {
-        header: "Total coin (per game net)",
-        id: "totalCoin",
-        cell: ({ row }) => {
-          const g = row.original;
-
-          // Prefer backend totalCoins, otherwise fall back to derived
-          const derivedNet =
-            g.totalCoins ?? g.coinsEarned - (g.coinsSpent + g.coinsRecharged);
-
-          const total = Math.abs(derivedNet);
-          const cls =
-            derivedNet < 0
-              ? "text-green-700"
-              : derivedNet > 0
-              ? "text-red-700"
-              : "text-gray-500";
-          return (
-            <span className={`font-mono ${cls}`}>{total.toLocaleString()}</span>
-          );
-        },
-      },
-      {
-        header: "P&L",
-        id: "pnl",
-        cell: ({ row }) => {
-          const g = row.original;
-
-          const derivedNet =
-            g.totalCoins ?? g.coinsEarned - (g.coinsSpent + g.coinsRecharged);
-
-          const pnl = derivedNet * COIN_VALUE;
-          const pos = pnl >= 0;
-          const Icon = pos ? TrendingUp : TrendingDown;
-          return (
-            <span
-              className={`px-2 py-1 rounded-full text-xs font-bold inline-flex items-center ${
-                pos
-                  ? "text-emerald-700 bg-emerald-100"
-                  : "text-red-700 bg-red-100"
-              }`}
-            >
-              <Icon size={14} className="mr-1" />
-              {pnl.toLocaleString("en-US", {
-                style: "currency",
-                currency: "USD",
-              })}
-            </span>
-          );
-        },
-      },
-      {
-        header: "Actions",
-        id: "actions",
-        cell: ({ row }) => (
-          <div className="flex items-center justify-end gap-2">
-            <button
-              onClick={() => setEditingGameId(row.original.id)}
-              className="p-1 text-indigo-600 hover:text-indigo-800 rounded hover:bg-indigo-100"
-              title="Edit recharge"
-            >
-              <Edit size={16} />
-            </button>
-            <button
-              onClick={() => handleResetRecharge(row.original.id)}
-              className="p-1 text-amber-600 hover:text-amber-800 rounded hover:bg-amber-100"
-              title="Reset recharge"
-            >
-              <RotateCcw size={16} />
-            </button>
-            <button
-              onClick={() => handleDelete(row.original.id)}
-              className="p-1 text-red-600 hover:text-red-800 rounded hover:bg-red-100"
-              title="Delete game"
-            >
-              <Trash2 size={16} />
-            </button>
-          </div>
-        ),
-      },
-    ];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [games]);
 
   const handleUpdate = (
     id: number,
@@ -437,7 +309,13 @@ const AdminDashboard: FC<AdminDashboardProps> = ({ username, onLogout }) => {
               </div>
 
               <div className="mt-4 overflow-hidden rounded-lg border border-gray-200 shadow-sm bg-white p-2">
-                <DataTable columns={gameColumns} data={games} />
+                <GameTable
+                  data={games as GameRowDT[]}
+                  coinValue={COIN_VALUE}
+                  onEditStart={(id) => setEditingGameId(id)}
+                  onResetRecharge={handleResetRecharge}
+                  onDelete={handleDelete}
+                />
               </div>
             </>
           )}

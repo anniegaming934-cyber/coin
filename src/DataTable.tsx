@@ -8,13 +8,14 @@ import {
   SortingState,
   useReactTable,
 } from "@tanstack/react-table";
-import { Pencil, KeyRound, RotateCcw, Trash2 } from "lucide-react";
+import { Pencil, KeyRound, RotateCcw, Trash2, Clock3 } from "lucide-react";
 
 type RowActions<TData> = {
   onEdit?: (row: TData) => void;
   onResetPassword?: (row: TData) => void;
   onReset?: (row: TData) => void; // e.g. reset stats/coins
   onDelete?: (row: TData) => void;
+  onHistory?: (row: TData) => void; // NEW: open history table / modal
 };
 
 type DataTableProps<TData, TValue> = {
@@ -24,7 +25,7 @@ type DataTableProps<TData, TValue> = {
   emptyMessage?: string;
   // row click (for router navigation)
   onRowClick?: (row: TData) => void;
-  // 👇 NEW: built-in actions column
+  // built-in actions column
   rowActions?: RowActions<TData>;
 };
 
@@ -44,7 +45,8 @@ export function DataTable<TData, TValue>({
       (rowActions.onEdit ||
         rowActions.onResetPassword ||
         rowActions.onReset ||
-        rowActions.onDelete);
+        rowActions.onDelete ||
+        rowActions.onHistory);
 
     if (!hasAnyAction) return columns;
 
@@ -59,6 +61,16 @@ export function DataTable<TData, TValue>({
             className="flex items-center gap-2 justify-end"
             onClick={(e) => e.stopPropagation()} // don't trigger row onClick
           >
+            {rowActions?.onHistory && (
+              <button
+                className="inline-flex items-center gap-1 px-2 py-1 text-xs border rounded hover:bg-gray-100"
+                onClick={() => rowActions.onHistory?.(original)}
+              >
+                <Clock3 className="w-3 h-3" />
+                History
+              </button>
+            )}
+
             {rowActions?.onEdit && (
               <button
                 className="inline-flex items-center gap-1 px-2 py-1 text-xs border rounded hover:bg-gray-100"
